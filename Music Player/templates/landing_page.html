@@ -69,15 +69,27 @@
             transform: translateY(-2px);
             box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
         }
+        footer {
+            position: fixed;
+            bottom: 0px;
+            width: 100%;
+            text-align: center;
+            font-size: 0.9em;
+            color: #f0e6d2;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+            background: rgba(0, 0, 0, 0.4);
+            padding: 10px 0;
+        }
     </style>
 </head>
 <body>
     <div class="landing">
         <div class="vinyl"></div>
         <h1>Welcome to Relapse Music Player</h1>
-        <p>Relive the rhythm with our retro-inspired music player. Enjoy your favorite tracks with a vintage vinyl vibe. Click below to start your musical journey!</p>
+        <p>Dive back into the past with the retro-inspired music player. Spin your favorite tracks and let the relapse vibes pull you into those nostalgic moments.</p>
         <a href="/player"><button class="start-button">Start Playing</button></a>
     </div>
+    <footer>&copy; 2025 Juliana Mancera</footer>
     <script>
         document.querySelector('.start-button').addEventListener('click', () => {
             window.location.href = '/player';
