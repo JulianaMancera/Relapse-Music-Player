@@ -456,232 +456,274 @@
         </div>
     </div>
 
-    <script>
-        let currentTrack = 0;
-        let playlist = [];
-        let filteredPlaylist = [];
-        let audio = new Audio();
-        let isPlaying = false;
-        let shuffle = false;
-        let repeat = false;
-        let previousVolume = 0.5;
-        let sidebarVisible = true;
-        
-        const vinyl = document.getElementById('vinylDisc');
-        const progress = document.getElementById('progress');
-        const volume = document.getElementById('volume');
-        const songTitle = document.getElementById('songTitle');
-        const searchInput = document.getElementById('searchInput');
-        const songList = document.getElementById('songList');
-        const playPauseIcon = document.getElementById('playPauseIcon');
-        const shuffleBtn = document.getElementById('shuffleBtn');
-        const repeatBtn = document.getElementById('repeatBtn');
-        const volumeDisplay = document.getElementById('volumeDisplay');
-        const sidebar = document.getElementById('sidebar');
-        const appContainer = document.getElementById('appContainer');
-        const toggleBtn = document.getElementById('toggleBtn');
+<script>
+    let currentTrack = 0;
+    let playlist = [];
+    let filteredPlaylist = [];
+    let audio = new Audio();
+    let isPlaying = false;
+    let shuffle = false;
+    let shuffleIndices = []; // Store shuffled indices
+    let repeat = false;
+    let previousVolume = 0.5;
+    let sidebarVisible = true;
 
-        // Initialize with demo playlist since API might not be available
-        const demoPlaylist = [
-            "Song 1 - Artist A.mp3",
-            "Song 2 - Artist B.mp3",
-            "Song 3 - Artist C.mp3",
-            "Song 4 - Artist D.mp3",
-            "Song 5 - Artist E.mp3"
-        ];
+    const vinyl = document.getElementById('vinylDisc');
+    const progress = document.getElementById('progress');
+    const volume = document.getElementById('volume');
+    const songTitle = document.getElementById('songTitle');
+    const searchInput = document.getElementById('searchInput');
+    const songList = document.getElementById('songList');
+    const playPauseIcon = document.getElementById('playPauseIcon');
+    const shuffleBtn = document.getElementById('shuffleBtn');
+    const repeatBtn = document.getElementById('repeatBtn');
+    const volumeDisplay = document.getElementById('volumeDisplay');
+    const sidebar = document.getElementById('sidebar');
+    const appContainer = document.getElementById('appContainer');
+    const toggleBtn = document.getElementById('toggleBtn');
 
-        // Try to fetch from API, fallback to demo
-        fetch('/api/playlist')
-            .then(response => response.json())
-            .then(data => {
-                updatePlaylist(data);
-            })
-            .catch(error => {
-                console.log('Using demo playlist');
-                updatePlaylist(demoPlaylist);
-            });
+    // Initialize with demo playlist since API might not be available
+    const demoPlaylist = [
+        "Song 1 - Artist A.mp3",
+        "Song 2 - Artist B.mp3",
+        "Song 3 - Artist C.mp3",
+        "Song 4 - Artist D.mp3",
+        "Song 5 - Artist E.mp3"
+    ];
 
-        function updatePlaylist(newPlaylist) {
-            playlist = newPlaylist;
-            filteredPlaylist = [...playlist];
-            updateSongList();
-            if (playlist.length > 0) {
-                loadTrack();
-            } else {
-                songTitle.textContent = "No songs available";
-            }
-        }
+    // Fetch playlist from API
+    fetch('/api/playlist')
+        .then(response => response.json())
+        .then(data => {
+            updatePlaylist(data);
+        })
+        .catch(error => {
+            console.log('Using demo playlist:', error);
+            updatePlaylist(demoPlaylist);
+        });
 
-        function updateSongList() {
-            songList.innerHTML = '';
-            filteredPlaylist.forEach((song, index) => {
-                const songItem = document.createElement('div');
-                songItem.textContent = song.replace('.mp3', '');
-                songItem.addEventListener('click', () => {
-                    currentTrack = playlist.indexOf(song);
-                    loadTrack();
-                    if (!isPlaying) togglePlayPause();
-                    updateSongList();
-                });
-                if (playlist[currentTrack] === song) songItem.classList.add('active');
-                songList.appendChild(songItem);
-            });
-        }
-
-        function toggleSidebar() {
-            sidebarVisible = !sidebarVisible;
-            if (sidebarVisible) {
-                sidebar.classList.remove('hidden');
-                appContainer.classList.remove('sidebar-hidden');
-                toggleBtn.innerHTML = '<i class="fas fa-list"></i>';
-                toggleBtn.title = 'Hide Playlist';
-            } else {
-                sidebar.classList.add('hidden');
-                appContainer.classList.add('sidebar-hidden');
-                toggleBtn.innerHTML = '<i class="fas fa-eye"></i>';
-                toggleBtn.title = 'Show Playlist';
-            }
-        }
-
-
-        function muteToggle() {
-            if (audio.volume > 0) {
-                previousVolume = audio.volume;
-                audio.volume = 0;
-                volume.value = 0;
-            } else {
-                audio.volume = previousVolume;
-                volume.value = previousVolume;
-            }
-            updateVolumeDisplay();
-        }
-
-        function maxVolume() {
-            audio.volume = 1;
-            volume.value = 1;
-            updateVolumeDisplay();
-        }
-
-        function updateVolumeDisplay() {
-            const volumePercent = Math.round(audio.volume * 100);
-            volumeDisplay.textContent = volumePercent + '%';
-        }
-
-        function togglePlayPause() {
-            if (filteredPlaylist.length > 0) {
-                if (isPlaying) {
-                    audio.pause();
-                    vinyl.classList.remove('spinning');
-                    isPlaying = false;
-                    playPauseIcon.classList.remove('fa-pause');
-                    playPauseIcon.classList.add('fa-play');
-                    songTitle.textContent = `Paused: ${playlist[currentTrack].replace('.mp3', '')}`;
-                } else {
-                    audio.play().catch(e => console.error("Playback failed:", e));
-                    vinyl.classList.add('spinning');
-                    isPlaying = true;
-                    playPauseIcon.classList.remove('fa-play');
-                    playPauseIcon.classList.add('fa-pause');
-                    songTitle.textContent = `Playing: ${playlist[currentTrack].replace('.mp3', '')}`;
-                }
-            }
-        }
-
-        function next() {
-            if (shuffle) {
-                currentTrack = Math.floor(Math.random() * playlist.length);
-            } else {
-                if (currentTrack < playlist.length - 1) currentTrack++;
-                else if (repeat) currentTrack = 0;
-                else return;
-            }
+    function updatePlaylist(newPlaylist) {
+        playlist = newPlaylist;
+        shuffleIndices = Array.from({ length: playlist.length }, (_, i) => i); // Initialize indices
+        filteredPlaylist = [...playlist];
+        updateSongList();
+        if (playlist.length > 0) {
             loadTrack();
+        } else {
+            songTitle.textContent = "No songs available";
+        }
+    }
+
+    function updateSongList() {
+        songList.innerHTML = '';
+        filteredPlaylist.forEach((song, displayIndex) => {
+            const songItem = document.createElement('div');
+            songItem.textContent = song.replace('.mp3', '');
+            songItem.addEventListener('click', () => {
+                // Find the original playlist index for the clicked song
+                const originalIndex = playlist.indexOf(song);
+                currentTrack = shuffle ? shuffleIndices.indexOf(originalIndex) : originalIndex;
+                loadTrack();
+                if (!isPlaying) togglePlayPause();
+                updateSongList();
+            });
+            if (playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack] === song) {
+                songItem.classList.add('active');
+            }
+            songList.appendChild(songItem);
+        });
+    }
+
+    function toggleSidebar() {
+        sidebarVisible = !sidebarVisible;
+        if (sidebarVisible) {
+            sidebar.classList.remove('hidden');
+            appContainer.classList.remove('sidebar-hidden');
+            toggleBtn.innerHTML = '<i class="fas fa-list"></i>';
+            toggleBtn.title = 'Hide Playlist';
+        } else {
+            sidebar.classList.add('hidden');
+            appContainer.classList.add('sidebar-hidden');
+            toggleBtn.innerHTML = '<i class="fas fa-eye"></i>';
+            toggleBtn.title = 'Show Playlist';
+        }
+    }
+
+    function muteToggle() {
+        if (audio.volume > 0) {
+            previousVolume = audio.volume;
+            audio.volume = 0;
+            volume.value = 0;
+        } else {
+            audio.volume = previousVolume;
+            volume.value = previousVolume;
+        }
+        updateVolumeDisplay();
+    }
+
+    function maxVolume() {
+        audio.volume = 1;
+        volume.value = 1;
+        updateVolumeDisplay();
+    }
+
+    function updateVolumeDisplay() {
+        const volumePercent = Math.round(audio.volume * 100);
+        volumeDisplay.textContent = volumePercent + '%';
+    }
+
+    function togglePlayPause() {
+        if (filteredPlaylist.length > 0) {
             if (isPlaying) {
+                audio.pause();
+                vinyl.classList.remove('spinning');
+                isPlaying = false;
+                playPauseIcon.classList.remove('fa-pause');
+                playPauseIcon.classList.add('fa-play');
+                songTitle.textContent = `Paused: ${playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack].replace('.mp3', '')}`;
+            } else {
                 audio.play().catch(e => console.error("Playback failed:", e));
                 vinyl.classList.add('spinning');
+                isPlaying = true;
                 playPauseIcon.classList.remove('fa-play');
                 playPauseIcon.classList.add('fa-pause');
+                songTitle.textContent = `Playing: ${playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack].replace('.mp3', '')}`;
             }
-            updateSongList();
         }
+    }
 
-        function prev() {
+    function next() {
+        if (filteredPlaylist.length === 0) return;
+        if (shuffle) {
+            currentTrack = (currentTrack + 1) % shuffleIndices.length;
+        } else {
+            if (currentTrack < playlist.length - 1) currentTrack++;
+            else if (repeat) currentTrack = 0;
+            else return;
+        }
+        loadTrack();
+        if (isPlaying) {
+            audio.play().catch(e => console.error("Playback failed:", e));
+            vinyl.classList.add('spinning');
+            playPauseIcon.classList.remove('fa-play');
+            playPauseIcon.classList.add('fa-pause');
+        }
+        updateSongList();
+    }
+
+    function prev() {
+        if (filteredPlaylist.length === 0) return;
+        if (shuffle) {
+            currentTrack = (currentTrack - 1 + shuffleIndices.length) % shuffleIndices.length;
+        } else {
             if (currentTrack > 0) currentTrack--;
             else if (repeat) currentTrack = playlist.length - 1;
             else return;
+        }
+        loadTrack();
+        if (isPlaying) {
+            audio.play().catch(e => console.error("Playback failed:", e));
+            vinyl.classList.add('spinning');
+            playPauseIcon.classList.remove('fa-play');
+            playPauseIcon.classList.add('fa-pause');
+        }
+        updateSongList();
+    }
+
+    function toggleShuffle() {
+        shuffle = !shuffle;
+        shuffleBtn.classList.toggle('active', shuffle);
+        if (shuffle) {
+            // Shuffle the playlist using Fisher-Yates
+            shuffleIndices = Array.from({ length: playlist.length }, (_, i) => i);
+            for (let i = shuffleIndices.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffleIndices[i], shuffleIndices[j]] = [shuffleIndices[j], shuffleIndices[i]];
+            }
+            // Update filteredPlaylist to reflect shuffled order
+            filteredPlaylist = shuffleIndices.map(i => playlist[i]);
+            currentTrack = 0; // Reset to start of shuffled playlist
             loadTrack();
             if (isPlaying) {
                 audio.play().catch(e => console.error("Playback failed:", e));
                 vinyl.classList.add('spinning');
-                playPauseIcon.classList.remove('fa-play');
-                playPauseIcon.classList.add('fa-pause');
             }
-            updateSongList();
-        }
-
-        function toggleShuffle() {
-            shuffle = !shuffle;
-            shuffleBtn.classList.toggle('active', shuffle);
-        }
-
-        function toggleRepeat() {
-            repeat = !repeat;
-            repeatBtn.classList.toggle('active', repeat);
-        }
-
-        function loadTrack() {
-            if (playlist.length > 0) {
-                audio.src = `/music/${playlist[currentTrack]}`;
-                songTitle.textContent = playlist[currentTrack].replace('.mp3', '');
-            }
-        }
-
-        function goBackToLanding() {
-            window.location.href = 'landing_page.html';
-        }
-
-        // Event listeners
-        searchInput.addEventListener('input', () => {
-            const query = searchInput.value.toLowerCase();
-            filteredPlaylist = playlist.filter(song => song.toLowerCase().includes(query));
-            updateSongList();
-            if (filteredPlaylist.length === 0) {
-                songTitle.textContent = "No songs match your search";
-            }
-        });
-
-        audio.addEventListener('timeupdate', () => {
-            if (!audio.paused && audio.duration) {
-                const progressPercent = (audio.currentTime / audio.duration) * 100;
-                progress.value = progressPercent;
-            }
-        });
-
-        audio.addEventListener('ended', () => {
-            if (repeat) {
-                loadTrack();
+        } else {
+            // Restore original order
+            shuffleIndices = Array.from({ length: playlist.length }, (_, i) => i);
+            filteredPlaylist = [...playlist];
+            currentTrack = 0; // Reset to start of original playlist
+            loadTrack();
+            if (isPlaying) {
                 audio.play().catch(e => console.error("Playback failed:", e));
                 vinyl.classList.add('spinning');
-            } else {
-                next();
             }
-        });
+        }
+        updateSongList();
+    }
 
-        progress.addEventListener('input', () => {
-            if (audio.duration) {
-                const seekTime = (progress.value / 100) * audio.duration;
-                audio.currentTime = seekTime;
-            }
-        });
+    function toggleRepeat() {
+        repeat = !repeat;
+        repeatBtn.classList.toggle('active', repeat);
+    }
 
-        volume.addEventListener('input', () => {
-            audio.volume = parseFloat(volume.value);
-            updateVolumeDisplay();
-        });
+    function loadTrack() {
+        if (playlist.length > 0) {
+            const trackIndex = shuffle ? shuffleIndices[currentTrack] : currentTrack;
+            audio.src = `/music/${playlist[trackIndex]}`;
+            songTitle.textContent = playlist[trackIndex].replace('.mp3', '');
+        }
+    }
 
-        // Initialize volume display and audio volume
+    function goBackToLanding() {
+        window.location.href = '/';
+    }
+
+    // Event listeners
+    searchInput.addEventListener('input', () => {
+        const query = searchInput.value.toLowerCase();
+        filteredPlaylist = playlist
+            .map((song, i) => ({ song, index: i }))
+            .filter(({ song }) => song.toLowerCase().includes(query))
+            .map(({ song, index }) => song);
+        updateSongList();
+        if (filteredPlaylist.length === 0) {
+            songTitle.textContent = "No songs match your search";
+        }
+    });
+
+    audio.addEventListener('timeupdate', () => {
+        if (!audio.paused && audio.duration) {
+            const progressPercent = (audio.currentTime / audio.duration) * 100;
+            progress.value = progressPercent;
+        }
+    });
+
+    audio.addEventListener('ended', () => {
+        if (repeat) {
+            loadTrack();
+            audio.play().catch(e => console.error("Playback failed:", e));
+            vinyl.classList.add('spinning');
+        } else {
+            next();
+        }
+    });
+
+    progress.addEventListener('input', () => {
+        if (audio.duration) {
+            const seekTime = (progress.value / 100) * audio.duration;
+            audio.currentTime = seekTime;
+        }
+    });
+
+    volume.addEventListener('input', () => {
         audio.volume = parseFloat(volume.value);
         updateVolumeDisplay();
-    </script>
+    });
+
+    // Initialize volume display and audio volume
+    audio.volume = parseFloat(volume.value);
+    updateVolumeDisplay();
+</script>
 </body>
 </html>
