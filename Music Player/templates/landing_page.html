@@ -1,9 +1,10 @@
 <!DOCTYPE html>
+<!--landing page-->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vinyl Nostalgia Player</title>
+    <title>Relapse Music Player</title>
     <link rel="website icon" type="png" href="vinyl.png">
     <style>
         body {
@@ -28,13 +29,14 @@
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.7);
         }
         .vinyl {
-            width: 150px;
-            height: 150px;
+            width: 250px;
+            height: 250px;
             background: url('/static/vinyl.png') no-repeat center;
             background-size: contain;
             margin: 20px auto;
             animation: spin 4s linear infinite;
         }
+
         @keyframes spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
@@ -72,8 +74,8 @@
 <body>
     <div class="landing">
         <div class="vinyl"></div>
-        <h1>Welcome to Vinyl Nostalgia</h1>
-        <p>Step back in time with our vintage-inspired music player. Enjoy your favorite tunes with a retro vinyl experience. Click below to start spinning your records!</p>
+        <h1>Welcome to Relapse Music Player</h1>
+        <p>Relive the rhythm with our retro-inspired music player. Enjoy your favorite tracks with a vintage vinyl vibe. Click below to start your musical journey!</p>
         <a href="/player"><button class="start-button">Start Playing</button></a>
     </div>
     <script>
