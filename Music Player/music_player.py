@@ -11,7 +11,7 @@ playlist = [file for file in os.listdir(music_dir) if file.endswith(('.mp3', '.w
 # Route for the landing page
 @app.route('/')
 def landing():
-    return render_template('landing_page.html')
+    return render_template('index.html')
 
 # Route for the player UI
 @app.route('/player')
