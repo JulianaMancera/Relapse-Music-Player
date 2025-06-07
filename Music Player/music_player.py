@@ -3,9 +3,10 @@ from flask import Flask, render_template, jsonify, send_from_directory
 
 app = Flask(__name__)
 
-# Set up the music directory dynamically
+# Set up the music and lyrics directories dynamically
 script_dir = os.path.dirname(os.path.abspath(__file__))
 music_dir = os.path.join(script_dir, "music")
+lyrics_dir = os.path.join(script_dir, "lyrics")
 playlist = [file for file in os.listdir(music_dir) if file.endswith(('.mp3', '.wav'))]
 
 # Route for the landing page
@@ -22,6 +23,11 @@ def player():
 @app.route('/music/<filename>')
 def serve_music(filename):
     return send_from_directory(music_dir, filename)
+
+# Route to serve lyrics files
+@app.route('/lyrics/<filename>')
+def serve_lyrics(filename):
+    return send_from_directory(lyrics_dir, filename)
 
 # API endpoint to get the playlist
 @app.route('/api/playlist')
