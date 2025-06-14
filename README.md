@@ -10,6 +10,11 @@
 - Web interface to browse and play music.
 - API endpoint to retrieve the playlist in JSON format.
 - Lightweight and easy to set up.
+- Hand Gestures:
+    - **Open Palm** - Play/resume
+    - **Fist** - Pause
+    - **Point Left** - Previous
+    - **Point Right** - Next
 
 ## Setup Instructions
 **1. Clone the Repository** <br> <br>
@@ -17,6 +22,7 @@
 
 **2. Install Dependencies** <br> <br>
 `pip install flask`
+`pip install opencv-python mediapipe flask pygame`
 
 **3. Directory Structure** <br>
 Ensure your music files (MP3 or WAV) are placed in a directory named music within the project folder: <br> <br>
