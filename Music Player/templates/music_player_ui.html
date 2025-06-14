@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Relapse Music Player</title>
-    <link rel="website icon" type="png" href="vinyl.png">
+    <link rel="website icon" type="png" href="/static/vinyl.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <style>
         body {
@@ -37,7 +37,7 @@
             z-index: -1; 
         }
 
-         @keyframes sparkle {
+        @keyframes sparkle {
             0% { background-position: 0 0, 50px 50px, -50px 100px; }
             100% { background-position: 150px 150px, 200px 200px, 100px 250px; }
         }
@@ -54,8 +54,8 @@
             transition: all 0.3s ease;
         }
         
-        .app-container.sidebar-hidden {
-            max-width: 700px;
+        .app-container.cv-enabled {
+            max-width: 1100px;
         }
         
         .exit-btn {
@@ -106,6 +106,47 @@
             transform: scale(1.1);
         }
         
+        .toggle-cv-btn {
+            position: absolute;
+            top: 15px;
+            right: 105px;
+            background: rgba(127, 179, 211, 0.8);
+            border: none;
+            color: white;
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 1.1em;
+            z-index: 10;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .toggle-cv-btn:hover {
+            background: #7fb3d3;
+            transform: scale(1.1);
+        }
+        
+        .webcam-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 300px;
+            height: 225px;
+            border: 2px solid #a3e4d7;
+            border-radius: 10px;
+            overflow: hidden;
+            display: none;
+            z-index: 5;
+        }
+        
+        .webcam-container.active {
+            display: block;
+        }
+        
         .player {
             flex: 2;
             padding: 40px;
@@ -114,6 +155,7 @@
             display: flex;
             flex-direction: column;
             justify-content: center;
+            align-items: center;
             position: relative;
             transition: all 0.3s ease;
         }
@@ -139,8 +181,8 @@
         }
         
       .vinyl {
-            width: 650px;
-            height: 650px;
+            width: 450px;
+            height: 450px;
             background: url('/static/vinyl.png') no-repeat center;
             background-size: contain;
             position: relative;
@@ -434,6 +476,18 @@
             .exit-btn {
                 top: 10px;
             }
+            
+            .toggle-cv-btn {
+                right: 105px;
+                top: 10px;
+            }
+            
+            .webcam-container {
+                top: 10px;
+                left: 10px;
+                width: 225px;
+                height: 168.75px;
+            }
         }
     </style>
 </head>
@@ -446,6 +500,14 @@
         <button class="toggle-sidebar-btn" onclick="toggleSidebar()" title="Toggle Playlist" id="toggleBtn">
             <i class="fas fa-list"></i>
         </button>
+        
+        <button class="toggle-cv-btn" onclick="toggleComputerVision()" title="Toggle Computer Vision" id="cvBtn">
+            <i class="fas fa-camera"></i>
+        </button>
+        
+        <div class="webcam-container" id="webcamContainer">
+            <img src="" id="webcamFeed" alt="Webcam Feed">
+        </div>
         
         <div class="player">
             <h2>Relapse Music Player</h2>
@@ -488,7 +550,7 @@
             </div>
         </div>
     </div>
-        <footer>© 2025 Juliana Mancera</footer>
+    <footer>© 2025 Juliana Mancera</footer>
 <script>
     let currentTrack = 0;
     let playlist = [];
@@ -496,10 +558,12 @@
     let audio = new Audio();
     let isPlaying = false;
     let shuffle = false;
-    let shuffleIndices = []; // Store shuffled indices
+    let shuffleIndices = [];
     let repeat = false;
     let previousVolume = 0.5;
     let sidebarVisible = true;
+    let cvEnabled = false;
+    let currentTime = 0;
 
     const vinyl = document.getElementById('vinylDisc');
     const progress = document.getElementById('progress');
@@ -514,17 +578,23 @@
     const sidebar = document.getElementById('sidebar');
     const appContainer = document.getElementById('appContainer');
     const toggleBtn = document.getElementById('toggleBtn');
+    const cvBtn = document.getElementById('cvBtn');
+    const webcamContainer = document.getElementById('webcamContainer');
+    const webcamFeed = document.getElementById('webcamFeed');
 
-    // Initialize with demo playlist since API might not be available
     const demoPlaylist = [
-        "Song 1 - Artist A.mp3",
-        "Song 2 - Artist B.mp3",
-        "Song 3 - Artist C.mp3",
-        "Song 4 - Artist D.mp3",
-        "Song 5 - Artist E.mp3"
+        "...Sad About You - Fly By Midnight.mp3",
+        "Always - Jay (Enhypen).mp3",
+        "Atlantis - Seafret.mp3",
+        "Cause u Have to - Lany.mp3",
+        "Cover Me - Stray Kids.mp3",
+        "Crush - David Archuleta.mp3",
+        "DLMLU - stray kids.mp3",
+        "Drowning - WOODZ.mp3",
+        "If You Do - GOT7.mp3",
+        "I leave - Strav Kirks.mp3"
     ];
 
-    // Fetch playlist from API
     fetch('/api/playlist')
         .then(response => response.json())
         .then(data => {
@@ -537,7 +607,7 @@
 
     function updatePlaylist(newPlaylist) {
         playlist = newPlaylist;
-        shuffleIndices = Array.from({ length: playlist.length }, (_, i) => i); // Initialize indices
+        shuffleIndices = Array.from({ length: playlist.length }, (_, i) => i);
         filteredPlaylist = [...playlist];
         updateSongList();
         if (playlist.length > 0) {
@@ -553,7 +623,6 @@
             const songItem = document.createElement('div');
             songItem.textContent = song.replace('.mp3', '');
             songItem.addEventListener('click', () => {
-                // Find the original playlist index for the clicked song
                 const originalIndex = playlist.indexOf(song);
                 currentTrack = shuffle ? shuffleIndices.indexOf(originalIndex) : originalIndex;
                 loadTrack();
@@ -579,6 +648,20 @@
             appContainer.classList.add('sidebar-hidden');
             toggleBtn.innerHTML = '<i class="fas fa-eye"></i>';
             toggleBtn.title = 'Show Playlist';
+        }
+    }
+
+    function toggleComputerVision() {
+        cvEnabled = !cvEnabled;
+        cvBtn.classList.toggle('active', cvEnabled);
+        appContainer.classList.toggle('cv-enabled', cvEnabled);
+        webcamContainer.classList.toggle('active', cvEnabled);
+        if (cvEnabled) {
+            webcamFeed.src = '/video_feed';
+            cvBtn.title = 'Disable Computer Vision';
+        } else {
+            webcamFeed.src = '';
+            cvBtn.title = 'Enable Computer Vision';
         }
     }
 
@@ -608,19 +691,23 @@
     function togglePlayPause() {
         if (filteredPlaylist.length > 0) {
             if (isPlaying) {
+                currentTime = audio.currentTime;
                 audio.pause();
                 vinyl.classList.remove('spinning');
                 isPlaying = false;
                 playPauseIcon.classList.remove('fa-pause');
                 playPauseIcon.classList.add('fa-play');
                 songTitle.textContent = `Paused: ${playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack].replace('.mp3', '')}`;
+                fetch('/control/pause', { method: 'POST' }); // Sync with server
             } else {
+                audio.currentTime = currentTime;
                 audio.play().catch(e => console.error("Playback failed:", e));
                 vinyl.classList.add('spinning');
                 isPlaying = true;
                 playPauseIcon.classList.remove('fa-play');
                 playPauseIcon.classList.add('fa-pause');
                 songTitle.textContent = `Playing: ${playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack].replace('.mp3', '')}`;
+                fetch('/control/play', { method: 'POST' }); // Sync with server
             }
         }
     }
@@ -642,6 +729,7 @@
             playPauseIcon.classList.add('fa-pause');
         }
         updateSongList();
+        fetch('/control/next', { method: 'POST' }); // Sync with server
     }
 
     function prev() {
@@ -661,31 +749,29 @@
             playPauseIcon.classList.add('fa-pause');
         }
         updateSongList();
+        fetch('/control/previous', { method: 'POST' }); // Sync with server
     }
 
     function toggleShuffle() {
         shuffle = !shuffle;
         shuffleBtn.classList.toggle('active', shuffle);
         if (shuffle) {
-            // Shuffle the playlist using Fisher-Yates
             shuffleIndices = Array.from({ length: playlist.length }, (_, i) => i);
             for (let i = shuffleIndices.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [shuffleIndices[i], shuffleIndices[j]] = [shuffleIndices[j], shuffleIndices[i]];
             }
-            // Update filteredPlaylist to reflect shuffled order
             filteredPlaylist = shuffleIndices.map(i => playlist[i]);
-            currentTrack = 0; // Reset to start of shuffled playlist
+            currentTrack = 0;
             loadTrack();
             if (isPlaying) {
                 audio.play().catch(e => console.error("Playback failed:", e));
                 vinyl.classList.add('spinning');
             }
         } else {
-            // Restore original order
             shuffleIndices = Array.from({ length: playlist.length }, (_, i) => i);
             filteredPlaylist = [...playlist];
-            currentTrack = 0; // Reset to start of original playlist
+            currentTrack = 0;
             loadTrack();
             if (isPlaying) {
                 audio.play().catch(e => console.error("Playback failed:", e));
@@ -704,6 +790,11 @@
         if (playlist.length > 0) {
             const trackIndex = shuffle ? shuffleIndices[currentTrack] : currentTrack;
             audio.src = `/music/${playlist[trackIndex]}`;
+            currentTime = 0; // Reset current time when loading a new track
+            if (isPlaying) {
+                audio.play().catch(e => console.error("Playback failed:", e));
+                vinyl.classList.add('spinning');
+            }
             songTitle.textContent = playlist[trackIndex].replace('.mp3', '');
         }
     }
@@ -712,7 +803,6 @@
         window.location.href = '/';
     }
 
-    // Event listeners
     searchInput.addEventListener('input', () => {
         const query = searchInput.value.toLowerCase();
         filteredPlaylist = playlist
@@ -754,9 +844,25 @@
         updateVolumeDisplay();
     });
 
-    // Initialize volume display and audio volume
     audio.volume = parseFloat(volume.value);
     updateVolumeDisplay();
+
+    // Poll server state to sync UI
+    function syncState() {
+        fetch('/api/state')
+            .then(response => response.json())
+            .then(data => {
+                if (data.current_index !== undefined) currentTrack = data.current_index;
+                if (data.is_playing !== undefined) {
+                    isPlaying = data.is_playing;
+                    vinyl.classList.toggle('spinning', isPlaying);
+                    playPauseIcon.classList.toggle('fa-play', !isPlaying);
+                    playPauseIcon.classList.toggle('fa-pause', isPlaying);
+                    songTitle.textContent = isPlaying ? `Playing: ${playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack].replace('.mp3', '')}` : `Paused: ${playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack].replace('.mp3', '')}`;
+                }
+                updateSongList();
+            })
+            .catch(error => console.error("Sync failed:", error));
+    }
+    setInterval(syncState, 1000); // Sync every second
 </script>
-</body>
-</html>

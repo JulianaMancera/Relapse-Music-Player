@@ -1,0 +1,111 @@
+body {
+    background: url('/static/shi.png') no-repeat center center fixed;
+    background-size: cover;
+    color: #fff;
+    font-family: 'Arial', sans-serif;
+    margin: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+}
+
+.container {
+    display: flex;
+    gap: 20px;
+}
+
+.webcam-container img {
+    width: 320px;
+    height: 240px;
+    border: 2px solid #333;
+}
+
+.player {
+    background: rgba(0, 0, 0, 0.8);
+    padding: 20px;
+    border-radius: 10px;
+    text-align: center;
+}
+
+.vinyl {
+    width: 250px;
+    height: 250px;
+    animation: spin 8s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+h1 {
+    font-size: 2em;
+    text-shadow: 2px 2px 4px #000;
+}
+
+.controls button {
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 2em;
+    cursor: pointer;
+    margin: 0 10px;
+}
+
+.controls button:hover {
+    color: #1db954;
+}
+
+.volume-slider {
+    width: 100%;
+    margin: 10px 0;
+}
+
+#volume-value {
+    margin-left: 10px;
+}
+
+#playlist-section {
+    margin-top: 20px;
+    background: rgba(0, 0, 0, 0.9);
+    padding: 10px;
+    border-radius: 5px;
+}
+
+#playlist {
+    list-style: none;
+    padding: 0;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+#playlist li {
+    padding: 5px;
+    cursor: pointer;
+}
+
+#playlist li:hover {
+    background: #1db954;
+}
+
+button {
+    background: #1db954;
+    border: none;
+    padding: 10px;
+    color: #fff;
+    cursor: pointer;
+    border-radius: 5px;
+    margin-top: 10px;
+}
+
+button:hover {
+    background: #1ed760;
+}
+
+footer {
+    position: fixed;
+    bottom: 10px;
+    width: 100%;
+    text-align: center;
+}
