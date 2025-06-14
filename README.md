@@ -5,16 +5,15 @@
 <br>
 &emsp;&emsp;Relapse Music Player is a web-based music player built using Flask, a Python web framework. It allows users to play audio files (MP3 and WAV formats) stored in a designated music directory. The application provides a UI to browse and play music files, with an API endpoint to retrieve the playlist. If you're remembering a moment and want to relapse into those memories—whether it's a song that takes you back to a forgotten summer or a melody that stirs old emotions—this player is here to help you relive those feelings through music.
 
-## Features
-- Play MP3 and WAV audio files.
-- Web interface to browse and play music.
-- API endpoint to retrieve the playlist in JSON format.
-- Lightweight and easy to set up.
-- Hand Gestures:
-    - **Open Palm** - Play/resume
-    - **Fist** - Pause
-    - **Point Left** - Previous
-    - **Point Right** - Next
+## ✨ Features
+- **🎵 Audio Support:** Play MP3 and WAV audio files
+- **🌐 Web Interface:** Clean, intuitive browser-based UI
+**🤚 Hand Gesture Controls:** Control playback without touching your device
+  - **Open Palm** → Play/Resume
+  - **Fist** → Pause
+  - **Point Left** → Previous Track
+  - **Point Right** → Next Track
+- **⚡ Lightweight:** Minimal setup and resource usage
 
 ## Setup Instructions
 **1. Clone the Repository** <br> <br>
@@ -32,6 +31,18 @@ Ensure your music files (MP3 or WAV) are placed in a directory named music withi
 `python music_player.py`
 
 *The app will start on* `http://127.0.0.1:5000` *by default.*
+
+## 🎮 Usage
+**Web Interface**
+- Browse your music collection in the web interface
+- Click on any track to start playing
+- Use the standard playback controls <br>
+
+**Gesture Controls**
+- Ensure your webcam is connected and functioning
+- Position yourself in front of the camera
+- Use the hand gestures listed in the features section
+- Make sure your hand is clearly visible to the camera
 
 ## Programmer
 © 2025 Juliana Mancera
