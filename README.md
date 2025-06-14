@@ -1,4 +1,4 @@
-<h1 align="center">Relapse Music Player🎵</h1>
+<h1 align="center">Relapse Music Player</h1>
 <div align="center">
   <img src="https://github.com/user-attachments/assets/c1d75d69-1080-4414-a97c-fe07f028dc57" width="500">
 </div>
