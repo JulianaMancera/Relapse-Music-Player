@@ -1,11 +1,13 @@
 import os
-from flask import Flask, render_template, jsonify, send_from_directory, Response
 import cv2
 import mediapipe as mp
-import threading
 import pygame
 import logging
 from datetime import datetime
+from flask import Flask, render_template, jsonify, send_from_directory, Response
+import threading
+import time
+import numpy as np
 
 app = Flask(__name__)
 
@@ -22,42 +24,79 @@ current_song = None
 current_index = 0
 current_position = 0  # Track playback position in milliseconds
 is_playing = False
+is_camera_active = True  # Track camera state
+last_gesture_time = 0  # For gesture debouncing
+gesture_cooldown = 1.0  # 1-second cooldown between gestures
+current_gesture = None  # To persist gesture display
 
 # Initialize MediaPipe Hands
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
-hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.85)
+hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.9, min_tracking_confidence=0.9)
 cap = cv2.VideoCapture(0)
-cap.set(3, 640)  # Set width
-cap.set(4, 480)  # Set height
+cap.set(3, 320)  # Reduced width to avoid UI overlap
+cap.set(4, 240)  # Reduced height to avoid UI overlap
 
 # Setup logging
 logging.basicConfig(filename='gesture_log.txt', level=logging.INFO)
 
-# Gesture recognition logic
+# Gesture recognition logic with two-finger swipe for next/previous
 def recognize_gesture(landmarks):
+    global last_gesture_time, current_gesture
+    current_time = time.time()
+    
+    if current_time - last_gesture_time < gesture_cooldown:
+        return None  # Ignore gestures during cooldown
+    
     wrist = landmarks[0]
     index_tip = landmarks[8]
     middle_tip = landmarks[12]
     ring_tip = landmarks[16]
     pinky_tip = landmarks[20]
     
-    if (index_tip.y < landmarks[6].y and middle_tip.y < landmarks[10].y and
-        ring_tip.y < landmarks[14].y and pinky_tip.y < landmarks[18].y):
+    # Play: All fingers up (above their base joints)
+    if (index_tip.y < landmarks[6].y - 0.05 and 
+        middle_tip.y < landmarks[10].y - 0.05 and
+        ring_tip.y < landmarks[14].y - 0.05 and 
+        pinky_tip.y < landmarks[18].y - 0.05):
+        last_gesture_time = current_time
+        current_gesture = "play"
         return "play"
-    if (index_tip.y > landmarks[6].y and middle_tip.y > landmarks[10].y and
-        ring_tip.y > landmarks[14].y and pinky_tip.y > landmarks[18].y):
+    
+    # Pause: All fingers down (below their base joints)
+    if (index_tip.y > landmarks[6].y + 0.05 and 
+        middle_tip.y > landmarks[10].y + 0.05 and
+        ring_tip.y > landmarks[14].y + 0.05 and 
+        pinky_tip.y > landmarks[18].y + 0.05):
+        last_gesture_time = current_time
+        current_gesture = "pause"
         return "pause"
-    if index_tip.x < wrist.x - 0.1:  # Pointing left for previous
+    
+    # Previous: Two fingers (index and middle) swiping left
+    if (index_tip.x < wrist.x - 0.1 and middle_tip.x < wrist.x - 0.1 and
+        abs(index_tip.y - middle_tip.y) < 0.05 and  # Fingers close vertically
+        ring_tip.y > landmarks[14].y and pinky_tip.y > landmarks[18].y):  # Other fingers down
+        last_gesture_time = current_time
+        current_gesture = "previous"
         return "previous"
-    if index_tip.x > wrist.x + 0.1:  # Pointing right for next
+    
+    # Next: Two fingers (index and middle) swiping right
+    if (index_tip.x > wrist.x + 0.1 and middle_tip.x > wrist.x + 0.1 and
+        abs(index_tip.y - middle_tip.y) < 0.05 and  # Fingers close vertically
+        ring_tip.y > landmarks[14].y and pinky_tip.y > landmarks[18].y):  # Other fingers down
+        last_gesture_time = current_time
+        current_gesture = "next"
         return "next"
+    
+    current_gesture = None  # Reset if no gesture detected
     return None
 
 # Video feed generator
 def generate_video_feed():
-    global is_playing
-    while True:
+    global is_playing, is_camera_active, cap, current_gesture
+    while is_camera_active:
+        if not cap.isOpened():
+            break
         success, frame = cap.read()
         if not success:
             break
@@ -71,17 +110,27 @@ def generate_video_feed():
                 mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
                 gesture = recognize_gesture(hand_landmarks.landmark)
                 if gesture:
-                    cv2.putText(frame, f"Gesture: {gesture}", (10, 30),
-                               cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
                     logging.info(f"{datetime.now()}: Detected gesture - {gesture}")
                     handle_gesture(gesture)
         else:
             logging.info(f"{datetime.now()}: No hand landmarks detected")
         
+        # Display persistent gesture text
+        if current_gesture:
+            cv2.putText(frame, f"Gesture: {current_gesture}", (10, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        
         _, buffer = cv2.imencode('.jpg', frame)
         frame = buffer.tobytes()
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+    
+    # Send blank frame when camera is closed
+    blank_frame = np.zeros((240, 320, 3), dtype=np.uint8)
+    _, buffer = cv2.imencode('.jpg', blank_frame)
+    frame = buffer.tobytes()
+    yield (b'--frame\r\n'
+           b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
 # Handle gesture actions
 def handle_gesture(gesture):
@@ -90,7 +139,7 @@ def handle_gesture(gesture):
         play_song()
         is_playing = True
     elif gesture == "pause" and pygame.mixer.music.get_busy():
-        current_position = pygame.mixer.music.get_pos()  # Save position in ms
+        current_position = pygame.mixer.music.get_pos()
         pygame.mixer.music.pause()
         is_playing = False
     elif gesture == "next":
@@ -103,13 +152,13 @@ def handle_gesture(gesture):
 # Music control functions
 def play_song():
     global current_song, current_index, current_position, is_playing
-    if playlist and current_index < len(playlist):
+    if playlist and 0 <= current_index < len(playlist):
         current_song = os.path.join(music_dir, playlist[current_index])
         try:
             pygame.mixer.music.load(current_song)
             if current_position > 0:
-                pygame.mixer.music.play(start=current_position / 1000.0)  # Convert ms to seconds
-                current_position = 0  # Reset after resuming
+                pygame.mixer.music.play(start=current_position / 1000.0)
+                current_position = 0
             else:
                 pygame.mixer.music.play()
             is_playing = True
@@ -119,16 +168,16 @@ def play_song():
 
 def next_song():
     global current_index, current_position
-    current_position = 0  # Reset position when switching songs
+    current_position = 0
     if playlist:
-        current_index = (current_index + 1) % len(playlist)
+        current_index = (current_index + 1) % len(playlist) 
         play_song()
 
 def previous_song():
     global current_index, current_position
-    current_position = 0  # Reset position when switching songs
+    current_position = 0
     if playlist:
-        current_index = (current_index - 1) % len(playlist)
+        current_index = (current_index - 1) % len(playlist) 
         play_song()
 
 # Flask routes
@@ -159,7 +208,7 @@ def video_feed():
 
 @app.route('/control/<action>', methods=['POST'])
 def control(action):
-    global is_playing
+    global is_playing, is_camera_active, cap  
     if action == 'play':
         play_song()
         is_playing = True
@@ -172,19 +221,34 @@ def control(action):
     elif action == 'previous':
         previous_song()
         is_playing = True
+    elif action == 'toggle_camera':
+        is_camera_active = not is_camera_active
+        if not is_camera_active:
+            cap.release()
+            logging.info(f"{datetime.now()}: Camera closed")
+        else:
+            cap = cv2.VideoCapture(0)  
+            cap.set(3, 320)
+            cap.set(4, 240)
+            logging.info(f"{datetime.now()}: Camera reopened")
     return jsonify({'status': 'success'})
 
 @app.route('/api/state')
 def get_state():
     return jsonify({
         'current_index': current_index,
-        'is_playing': is_playing
+        'is_playing': is_playing,
+        'is_camera_active': is_camera_active
     })
 
 if __name__ == "__main__":
     import atexit
     @atexit.register
     def cleanup():
+        global is_camera_active
+        is_camera_active = False
         cap.release()
         cv2.destroyAllWindows()
+        pygame.mixer.quit()
+        logging.info(f"{datetime.now()}: Application cleanup completed")
     app.run(debug=False, use_reloader=False)
