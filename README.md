@@ -35,6 +35,7 @@ Ensure your music files (MP3 or WAV) are placed in a directory named music withi
 ## 🎮 Usage
 **Web Interface**
 - Browse your music collection in the web interface
+- You can import songs 
 - Click on any track to start playing
 - Use the standard playback controls <br>
 
