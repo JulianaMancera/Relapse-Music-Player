@@ -11,8 +11,8 @@
 **🤚 Hand Gesture Controls:** Control playback without touching your device
   - **Open Palm** → Play/Resume
   - **Fist** → Pause
-  - **Point Left** → Previous Track
-  - **Point Right** → Next Track
+  - **Two Fingers Swipe Left** → Previous Track
+  - **Two Fingers Swipe Right** → Next Track
 - **⚡ Lightweight:** Minimal setup and resource usage
 
 ## ⚙️Setup Instructions
