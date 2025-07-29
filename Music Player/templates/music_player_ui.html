@@ -154,7 +154,7 @@
             color: #f0e6d2;
             display: flex;
             flex-direction: column;
-            justify-content: center;
+            justify-content: space-between;
             align-items: center;
             position: relative;
             transition: all 0.3s ease;
@@ -187,6 +187,7 @@
             background-size: contain;
             position: relative;
             transition: transform 0.3s ease;
+            cursor: pointer;
         }
         
         .spinning {
@@ -216,11 +217,12 @@
         }
         
         .controls {
-            margin: 30px 0;
+            margin: 20px 0;
             display: flex;
             justify-content: center;
             gap: 20px;
             align-items: center;
+            width: 100%;
         }
         
         .controls button {
@@ -440,7 +442,91 @@
             background: rgba(0, 0, 0, 0.4);
             padding: 10px 0;
         }
-        
+
+        .lyrics-panel {
+            display: none;
+            position: absolute;
+            top: 120px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            max-height: 60%;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            overflow-y: auto;
+            z-index: 5;
+            transition: opacity 0.3s ease, top 0.3s ease;
+        }
+
+        .lyrics-panel.active {
+            display: block;
+            opacity: 1;
+            top: 140px;
+        }
+
+        .lyrics-content {
+            text-align: center;
+            font-size: 1.2em;
+            line-height: 1.6;
+            color: #a3e4d7;
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.5);
+        }
+
+        .lyrics-content .stanza {
+            margin-bottom: 20px;
+        }
+
+        .lyrics-content .stanza-header {
+            font-weight: bold;
+            color: #ff6b81;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .lyrics-content p {
+            margin: 5px 0;
+        }
+
+        .lyrics-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .lyrics-content::-webkit-scrollbar-track {
+            background: rgba(163, 228, 215, 0.1);
+            border-radius: 3px;
+        }
+
+        .lyrics-content::-webkit-scrollbar-thumb {
+            background: rgba(163, 228, 215, 0.4);
+            border-radius: 3px;
+        }
+
+        .close-lyrics {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 107, 129, 0.8);
+            border: none;
+            color: white;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 1em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .close-lyrics:hover {
+            background: #ff6b81;
+            transform: scale(1.1);
+        }
+
         @media (max-width: 768px) {
             .app-container {
                 flex-direction: column;
@@ -488,6 +574,12 @@
                 width: 225px;
                 height: 168.75px;
             }
+
+            .lyrics-panel {
+                width: 90%;
+                top: 100px;
+                max-height: 50%;
+            }
         }
     </style>
 </head>
@@ -511,7 +603,7 @@
         
         <div class="player">
             <h2>Relapse Music Player</h2>
-            <div class="vinyl" id="vinylDisc"></div>
+            <div class="vinyl" id="vinylDisc" onclick="toggleLyrics()"></div>
             <div id="songTitle">No song playing</div>
             
             <div class="controls">
@@ -540,6 +632,11 @@
                 <i class="fas fa-volume-up volume-icon" onclick="maxVolume()"></i>
                 <span class="volume-display" id="volumeDisplay">50%</span>
             </div>
+
+            <div class="lyrics-panel" id="lyricsPanel">
+                <button class="close-lyrics" onclick="toggleLyrics()">×</button>
+                <div class="lyrics-content" id="lyrics-content"></div>
+            </div>
         </div>
         
         <div class="sidebar" id="sidebar">
@@ -550,319 +647,373 @@
             </div>
         </div>
     </div>
+
     <footer>© 2025 Juliana Mancera</footer>
-<script>
-    let currentTrack = 0;
-    let playlist = [];
-    let filteredPlaylist = [];
-    let audio = new Audio();
-    let isPlaying = false;
-    let shuffle = false;
-    let shuffleIndices = [];
-    let repeat = false;
-    let previousVolume = 0.5;
-    let sidebarVisible = true;
-    let cvEnabled = false;
-    let currentTime = 0;
+    <script>
+        let currentTrack = 0;
+        let playlist = [];
+        let filteredPlaylist = [];
+        let audio = new Audio();
+        let isPlaying = false;
+        let shuffle = false;
+        let shuffleIndices = [];
+        let repeat = false;
+        let previousVolume = 0.5;
+        let sidebarVisible = true;
+        let cvEnabled = false;
+        let currentTime = 0;
+        let isLyricsActive = false;
 
-    const vinyl = document.getElementById('vinylDisc');
-    const progress = document.getElementById('progress');
-    const volume = document.getElementById('volume');
-    const songTitle = document.getElementById('songTitle');
-    const searchInput = document.getElementById('searchInput');
-    const songList = document.getElementById('songList');
-    const playPauseIcon = document.getElementById('playPauseIcon');
-    const shuffleBtn = document.getElementById('shuffleBtn');
-    const repeatBtn = document.getElementById('repeatBtn');
-    const volumeDisplay = document.getElementById('volumeDisplay');
-    const sidebar = document.getElementById('sidebar');
-    const appContainer = document.getElementById('appContainer');
-    const toggleBtn = document.getElementById('toggleBtn');
-    const cvBtn = document.getElementById('cvBtn');
-    const webcamContainer = document.getElementById('webcamContainer');
-    const webcamFeed = document.getElementById('webcamFeed');
+        const vinyl = document.getElementById('vinylDisc');
+        const progress = document.getElementById('progress');
+        const volume = document.getElementById('volume');
+        const songTitle = document.getElementById('songTitle');
+        const searchInput = document.getElementById('searchInput');
+        const songList = document.getElementById('songList');
+        const playPauseIcon = document.getElementById('playPauseIcon');
+        const shuffleBtn = document.getElementById('shuffleBtn');
+        const repeatBtn = document.getElementById('repeatBtn');
+        const volumeDisplay = document.getElementById('volumeDisplay');
+        const sidebar = document.getElementById('sidebar');
+        const appContainer = document.getElementById('appContainer');
+        const toggleBtn = document.getElementById('toggleBtn');
+        const cvBtn = document.getElementById('cvBtn');
+        const webcamContainer = document.getElementById('webcamContainer');
+        const webcamFeed = document.getElementById('webcamFeed');
+        const lyricsPanel = document.getElementById('lyricsPanel');
+        const lyricsContent = document.getElementById('lyrics-content');
 
-    const demoPlaylist = [
-        "...Sad About You - Fly By Midnight.mp3",
-        "Always - Jay (Enhypen).mp3",
-        "Atlantis - Seafret.mp3",
-        "Cause u Have to - Lany.mp3",
-        "Cover Me - Stray Kids.mp3",
-        "Crush - David Archuleta.mp3",
-        "DLMLU - stray kids.mp3",
-        "Drowning - WOODZ.mp3",
-        "If You Do - GOT7.mp3",
-        "I leave - Strav Kirks.mp3"
-    ];
+        const demoPlaylist = [
+            "...Sad About You - Fly By Midnight.mp3",
+            "Always - Jay (Enhypen).mp3",
+            "Atlantis - Seafret.mp3",
+            "Cause u Have to - Lany.mp3",
+            "Cover Me - Stray Kids.mp3",
+            "Crush - David Archuleta.mp3",
+            "DLMLU - stray kids.mp3",
+            "Drowning - WOODZ.mp3",
+            "If You Do - GOT7.mp3",
+            "I leave - Strav Kirks.mp3"
+        ];
 
-    fetch('/api/playlist')
-        .then(response => response.json())
-        .then(data => {
-            updatePlaylist(data);
-        })
-        .catch(error => {
-            console.log('Using demo playlist:', error);
-            updatePlaylist(demoPlaylist);
-        });
-
-    function updatePlaylist(newPlaylist) {
-        playlist = newPlaylist;
-        shuffleIndices = Array.from({ length: playlist.length }, (_, i) => i);
-        filteredPlaylist = [...playlist];
-        updateSongList();
-        if (playlist.length > 0) {
-            loadTrack();
-        } else {
-            songTitle.textContent = "No songs available";
-        }
-    }
-
-    function updateSongList() {
-        songList.innerHTML = '';
-        filteredPlaylist.forEach((song, displayIndex) => {
-            const songItem = document.createElement('div');
-            songItem.textContent = song.replace('.mp3', '');
-            songItem.addEventListener('click', () => {
-                const originalIndex = playlist.indexOf(song);
-                currentTrack = shuffle ? shuffleIndices.indexOf(originalIndex) : originalIndex;
-                loadTrack();
-                if (!isPlaying) togglePlayPause();
-                updateSongList();
-            });
-            if (playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack] === song) {
-                songItem.classList.add('active');
-            }
-            songList.appendChild(songItem);
-        });
-    }
-
-    function toggleSidebar() {
-        sidebarVisible = !sidebarVisible;
-        if (sidebarVisible) {
-            sidebar.classList.remove('hidden');
-            appContainer.classList.remove('sidebar-hidden');
-            toggleBtn.innerHTML = '<i class="fas fa-list"></i>';
-            toggleBtn.title = 'Hide Playlist';
-        } else {
-            sidebar.classList.add('hidden');
-            appContainer.classList.add('sidebar-hidden');
-            toggleBtn.innerHTML = '<i class="fas fa-eye"></i>';
-            toggleBtn.title = 'Show Playlist';
-        }
-    }
-
-    function toggleComputerVision() {
-        cvEnabled = !cvEnabled;
-        cvBtn.classList.toggle('active', cvEnabled);
-        appContainer.classList.toggle('cv-enabled', cvEnabled);
-        webcamContainer.classList.toggle('active', cvEnabled);
-        if (cvEnabled) {
-            webcamFeed.src = '/video_feed';
-            cvBtn.title = 'Disable Computer Vision';
-        } else {
-            webcamFeed.src = '';
-            cvBtn.title = 'Enable Computer Vision';
-        }
-    }
-
-    function muteToggle() {
-        if (audio.volume > 0) {
-            previousVolume = audio.volume;
-            audio.volume = 0;
-            volume.value = 0;
-        } else {
-            audio.volume = previousVolume;
-            volume.value = previousVolume;
-        }
-        updateVolumeDisplay();
-    }
-
-    function maxVolume() {
-        audio.volume = 1;
-        volume.value = 1;
-        updateVolumeDisplay();
-    }
-
-    function updateVolumeDisplay() {
-        const volumePercent = Math.round(audio.volume * 100);
-        volumeDisplay.textContent = volumePercent + '%';
-    }
-
-    function togglePlayPause() {
-        if (filteredPlaylist.length > 0) {
-            if (isPlaying) {
-                currentTime = audio.currentTime;
-                audio.pause();
-                vinyl.classList.remove('spinning');
-                isPlaying = false;
-                playPauseIcon.classList.remove('fa-pause');
-                playPauseIcon.classList.add('fa-play');
-                songTitle.textContent = `Paused: ${playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack].replace('.mp3', '')}`;
-                fetch('/control/pause', { method: 'POST' }); // Sync with server
-            } else {
-                audio.currentTime = currentTime;
-                audio.play().catch(e => console.error("Playback failed:", e));
-                vinyl.classList.add('spinning');
-                isPlaying = true;
-                playPauseIcon.classList.remove('fa-play');
-                playPauseIcon.classList.add('fa-pause');
-                songTitle.textContent = `Playing: ${playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack].replace('.mp3', '')}`;
-                fetch('/control/play', { method: 'POST' }); // Sync with server
-            }
-        }
-    }
-
-    function next() {
-        if (filteredPlaylist.length === 0) return;
-        if (shuffle) {
-            currentTrack = (currentTrack + 1) % shuffleIndices.length;
-        } else {
-            if (currentTrack < playlist.length - 1) currentTrack++;
-            else if (repeat) currentTrack = 0;
-            else return;
-        }
-        loadTrack();
-        if (isPlaying) {
-            audio.play().catch(e => console.error("Playback failed:", e));
-            vinyl.classList.add('spinning');
-            playPauseIcon.classList.remove('fa-play');
-            playPauseIcon.classList.add('fa-pause');
-        }
-        updateSongList();
-        fetch('/control/next', { method: 'POST' }); // Sync with server
-    }
-
-    function prev() {
-        if (filteredPlaylist.length === 0) return;
-        if (shuffle) {
-            currentTrack = (currentTrack - 1 + shuffleIndices.length) % shuffleIndices.length;
-        } else {
-            if (currentTrack > 0) currentTrack--;
-            else if (repeat) currentTrack = playlist.length - 1;
-            else return;
-        }
-        loadTrack();
-        if (isPlaying) {
-            audio.play().catch(e => console.error("Playback failed:", e));
-            vinyl.classList.add('spinning');
-            playPauseIcon.classList.remove('fa-play');
-            playPauseIcon.classList.add('fa-pause');
-        }
-        updateSongList();
-        fetch('/control/previous', { method: 'POST' }); // Sync with server
-    }
-
-    function toggleShuffle() {
-        shuffle = !shuffle;
-        shuffleBtn.classList.toggle('active', shuffle);
-        if (shuffle) {
-            shuffleIndices = Array.from({ length: playlist.length }, (_, i) => i);
-            for (let i = shuffleIndices.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [shuffleIndices[i], shuffleIndices[j]] = [shuffleIndices[j], shuffleIndices[i]];
-            }
-            filteredPlaylist = shuffleIndices.map(i => playlist[i]);
-            currentTrack = 0;
-            loadTrack();
-            if (isPlaying) {
-                audio.play().catch(e => console.error("Playback failed:", e));
-                vinyl.classList.add('spinning');
-            }
-        } else {
-            shuffleIndices = Array.from({ length: playlist.length }, (_, i) => i);
-            filteredPlaylist = [...playlist];
-            currentTrack = 0;
-            loadTrack();
-            if (isPlaying) {
-                audio.play().catch(e => console.error("Playback failed:", e));
-                vinyl.classList.add('spinning');
-            }
-        }
-        updateSongList();
-    }
-
-    function toggleRepeat() {
-        repeat = !repeat;
-        repeatBtn.classList.toggle('active', repeat);
-    }
-
-    function loadTrack() {
-        if (playlist.length > 0) {
-            const trackIndex = shuffle ? shuffleIndices[currentTrack] : currentTrack;
-            audio.src = `/music/${playlist[trackIndex]}`;
-            currentTime = 0; // Reset current time when loading a new track
-            if (isPlaying) {
-                audio.play().catch(e => console.error("Playback failed:", e));
-                vinyl.classList.add('spinning');
-            }
-            songTitle.textContent = playlist[trackIndex].replace('.mp3', '');
-        }
-    }
-
-    function goBackToLanding() {
-        window.location.href = '/';
-    }
-
-    searchInput.addEventListener('input', () => {
-        const query = searchInput.value.toLowerCase();
-        filteredPlaylist = playlist
-            .map((song, i) => ({ song, index: i }))
-            .filter(({ song }) => song.toLowerCase().includes(query))
-            .map(({ song, index }) => song);
-        updateSongList();
-        if (filteredPlaylist.length === 0) {
-            songTitle.textContent = "No songs match your search";
-        }
-    });
-
-    audio.addEventListener('timeupdate', () => {
-        if (!audio.paused && audio.duration) {
-            const progressPercent = (audio.currentTime / audio.duration) * 100;
-            progress.value = progressPercent;
-        }
-    });
-
-    audio.addEventListener('ended', () => {
-        if (repeat) {
-            loadTrack();
-            audio.play().catch(e => console.error("Playback failed:", e));
-            vinyl.classList.add('spinning');
-        } else {
-            next();
-        }
-    });
-
-    progress.addEventListener('input', () => {
-        if (audio.duration) {
-            const seekTime = (progress.value / 100) * audio.duration;
-            audio.currentTime = seekTime;
-        }
-    });
-
-    volume.addEventListener('input', () => {
-        audio.volume = parseFloat(volume.value);
-        updateVolumeDisplay();
-    });
-
-    audio.volume = parseFloat(volume.value);
-    updateVolumeDisplay();
-
-    // Poll server state to sync UI
-    function syncState() {
-        fetch('/api/state')
+        fetch('/api/playlist')
             .then(response => response.json())
             .then(data => {
-                if (data.current_index !== undefined) currentTrack = data.current_index;
-                if (data.is_playing !== undefined) {
-                    isPlaying = data.is_playing;
-                    vinyl.classList.toggle('spinning', isPlaying);
-                    playPauseIcon.classList.toggle('fa-play', !isPlaying);
-                    playPauseIcon.classList.toggle('fa-pause', isPlaying);
-                    songTitle.textContent = isPlaying ? `Playing: ${playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack].replace('.mp3', '')}` : `Paused: ${playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack].replace('.mp3', '')}`;
-                }
-                updateSongList();
+                updatePlaylist(data);
             })
-            .catch(error => console.error("Sync failed:", error));
-    }
-    setInterval(syncState, 1000); // Sync every second
-</script>
+            .catch(error => {
+                console.log('Using demo playlist:', error);
+                updatePlaylist(demoPlaylist);
+            });
+
+        function updatePlaylist(newPlaylist) {
+            playlist = newPlaylist;
+            shuffleIndices = Array.from({ length: playlist.length }, (_, i) => i);
+            filteredPlaylist = [...playlist];
+            updateSongList();
+            if (playlist.length > 0) {
+                loadTrack();
+            } else {
+                songTitle.textContent = "No songs available";
+            }
+        }
+
+        function updateSongList() {
+            songList.innerHTML = '';
+            filteredPlaylist.forEach((song, displayIndex) => {
+                const songItem = document.createElement('div');
+                songItem.textContent = song.replace('.mp3', '');
+                songItem.addEventListener('click', () => {
+                    const originalIndex = playlist.indexOf(song);
+                    currentTrack = shuffle ? shuffleIndices.indexOf(originalIndex) : originalIndex;
+                    loadTrack();
+                    if (!isPlaying) togglePlayPause();
+                    updateSongList();
+                });
+                if (playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack] === song) {
+                    songItem.classList.add('active');
+                }
+                songList.appendChild(songItem);
+            });
+        }
+
+        function toggleSidebar() {
+            sidebarVisible = !sidebarVisible;
+            if (sidebarVisible) {
+                sidebar.classList.remove('hidden');
+                appContainer.classList.remove('sidebar-hidden');
+                toggleBtn.innerHTML = '<i class="fas fa-list"></i>';
+                toggleBtn.title = 'Hide Playlist';
+            } else {
+                sidebar.classList.add('hidden');
+                appContainer.classList.add('sidebar-hidden');
+                toggleBtn.innerHTML = '<i class="fas fa-eye"></i>';
+                toggleBtn.title = 'Show Playlist';
+            }
+        }
+
+        function toggleComputerVision() {
+            cvEnabled = !cvEnabled;
+            cvBtn.classList.toggle('active', cvEnabled);
+            appContainer.classList.toggle('cv-enabled', cvEnabled);
+            webcamContainer.classList.toggle('active', cvEnabled);
+            if (cvEnabled) {
+                webcamFeed.src = '/video_feed';
+                cvBtn.title = 'Disable Computer Vision';
+            } else {
+                webcamFeed.src = '';
+                cvBtn.title = 'Enable Computer Vision';
+            }
+        }
+
+        function muteToggle() {
+            if (audio.volume > 0) {
+                previousVolume = audio.volume;
+                audio.volume = 0;
+                volume.value = 0;
+            } else {
+                audio.volume = previousVolume;
+                volume.value = previousVolume;
+            }
+            updateVolumeDisplay();
+        }
+
+        function maxVolume() {
+            audio.volume = 1;
+            volume.value = 1;
+            updateVolumeDisplay();
+        }
+
+        function updateVolumeDisplay() {
+            const volumePercent = Math.round(audio.volume * 100);
+            volumeDisplay.textContent = volumePercent + '%';
+        }
+
+        function togglePlayPause() {
+            if (filteredPlaylist.length > 0) {
+                if (isPlaying) {
+                    currentTime = audio.currentTime;
+                    audio.pause();
+                    vinyl.classList.remove('spinning');
+                    isPlaying = false;
+                    playPauseIcon.classList.remove('fa-pause');
+                    playPauseIcon.classList.add('fa-play');
+                    songTitle.textContent = `Paused: ${playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack].replace('.mp3', '')}`;
+                    fetch('/control/pause', { method: 'POST' });
+                } else {
+                    audio.currentTime = currentTime;
+                    audio.play().catch(e => console.error("Playback failed:", e));
+                    vinyl.classList.add('spinning');
+                    isPlaying = true;
+                    playPauseIcon.classList.remove('fa-play');
+                    playPauseIcon.classList.add('fa-pause');
+                    songTitle.textContent = `Playing: ${playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack].replace('.mp3', '')}`;
+                    fetch('/control/play', { method: 'POST' });
+                }
+            }
+        }
+
+        function next() {
+            if (filteredPlaylist.length === 0) return;
+            if (shuffle) {
+                currentTrack = (currentTrack + 1) % shuffleIndices.length;
+            } else {
+                if (currentTrack < playlist.length - 1) currentTrack++;
+                else if (repeat) currentTrack = 0;
+                else return;
+            }
+            loadTrack();
+            if (isPlaying) {
+                audio.play().catch(e => console.error("Playback failed:", e));
+                vinyl.classList.add('spinning');
+                playPauseIcon.classList.remove('fa-play');
+                playPauseIcon.classList.add('fa-pause');
+            }
+            updateSongList();
+            fetch('/control/next', { method: 'POST' });
+        }
+
+        function prev() {
+            if (filteredPlaylist.length === 0) return;
+            if (shuffle) {
+                currentTrack = (currentTrack - 1 + shuffleIndices.length) % shuffleIndices.length;
+            } else {
+                if (currentTrack > 0) currentTrack--;
+                else if (repeat) currentTrack = playlist.length - 1;
+                else return;
+            }
+            loadTrack();
+            if (isPlaying) {
+                audio.play().catch(e => console.error("Playback failed:", e));
+                vinyl.classList.add('spinning');
+                playPauseIcon.classList.remove('fa-play');
+                playPauseIcon.classList.add('fa-pause');
+            }
+            updateSongList();
+            fetch('/control/previous', { method: 'POST' });
+        }
+
+        function toggleShuffle() {
+            shuffle = !shuffle;
+            shuffleBtn.classList.toggle('active', shuffle);
+            if (shuffle) {
+                shuffleIndices = Array.from({ length: playlist.length }, (_, i) => i);
+                for (let i = shuffleIndices.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [shuffleIndices[i], shuffleIndices[j]] = [shuffleIndices[j], shuffleIndices[i]];
+                }
+                filteredPlaylist = shuffleIndices.map(i => playlist[i]);
+                currentTrack = 0;
+                loadTrack();
+                if (isPlaying) {
+                    audio.play().catch(e => console.error("Playback failed:", e));
+                    vinyl.classList.add('spinning');
+                }
+            } else {
+                shuffleIndices = Array.from({ length: playlist.length }, (_, i) => i);
+                filteredPlaylist = [...playlist];
+                currentTrack = 0;
+                loadTrack();
+                if (isPlaying) {
+                    audio.play().catch(e => console.error("Playback failed:", e));
+                    vinyl.classList.add('spinning');
+                }
+            }
+            updateSongList();
+        }
+
+        function toggleRepeat() {
+            repeat = !repeat;
+            repeatBtn.classList.toggle('active', repeat);
+        }
+
+        function loadTrack() {
+            if (playlist.length > 0) {
+                const trackIndex = shuffle ? shuffleIndices[currentTrack] : currentTrack;
+                audio.src = `/music/${playlist[trackIndex]}`;
+                currentTime = 0;
+                if (isPlaying) {
+                    audio.play().catch(e => console.error("Playback failed:", e));
+                    vinyl.classList.add('spinning');
+                }
+                songTitle.textContent = playlist[trackIndex].replace('.mp3', '');
+            }
+        }
+
+        function goBackToLanding() {
+            window.location.href = '/';
+        }
+
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.toLowerCase();
+            filteredPlaylist = playlist
+                .map((song, i) => ({ song, index: i }))
+                .filter(({ song }) => song.toLowerCase().includes(query))
+                .map(({ song, index }) => song);
+            updateSongList();
+            if (filteredPlaylist.length === 0) {
+                songTitle.textContent = "No songs match your search";
+            }
+        });
+
+        audio.addEventListener('timeupdate', () => {
+            if (!audio.paused && audio.duration) {
+                const progressPercent = (audio.currentTime / audio.duration) * 100;
+                progress.value = progressPercent;
+            }
+        });
+
+        audio.addEventListener('ended', () => {
+            if (repeat) {
+                loadTrack();
+                audio.play().catch(e => console.error("Playback failed:", e));
+                vinyl.classList.add('spinning');
+            } else {
+                next();
+            }
+        });
+
+        progress.addEventListener('input', () => {
+            if (audio.duration) {
+                const seekTime = (progress.value / 100) * audio.duration;
+                audio.currentTime = seekTime;
+            }
+        });
+
+        volume.addEventListener('input', () => {
+            audio.volume = parseFloat(volume.value);
+            updateVolumeDisplay();
+        });
+
+        audio.volume = parseFloat(volume.value);
+        updateVolumeDisplay();
+
+        function syncState() {
+            fetch('/api/state')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.current_index !== undefined) currentTrack = data.current_index;
+                    if (data.is_playing !== undefined) {
+                        isPlaying = data.is_playing;
+                        vinyl.classList.toggle('spinning', isPlaying);
+                        playPauseIcon.classList.toggle('fa-play', !isPlaying);
+                        playPauseIcon.classList.toggle('fa-pause', isPlaying);
+                        songTitle.textContent = isPlaying ? `Playing: ${playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack].replace('.mp3', '')}` : `Paused: ${playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack].replace('.mp3', '')}`;
+                    }
+                    updateSongList();
+                })
+                .catch(error => console.error("Sync failed:", error));
+        }
+        setInterval(syncState, 1000);
+
+        function toggleLyrics() {
+            isLyricsActive = !isLyricsActive;
+            const lyricsPanel = document.getElementById('lyricsPanel');
+            if (isLyricsActive) {
+                if (playlist.length > 0) {
+                    const trackIndex = shuffle ? shuffleIndices[currentTrack] : currentTrack;
+                    const song = playlist[trackIndex].replace('.mp3', '.txt');
+                    fetch(`/lyrics/${song}`)
+                        .then(response => response.text())
+                        .then(lyrics => {
+                            const lines = lyrics.split('\n');
+                            let formattedLyrics = '';
+                            let currentStanza = '';
+                            lines.forEach(line => {
+                                line = line.trim();
+                                if (line.startsWith('[') && line.endsWith(']')) {
+                                    if (currentStanza) {
+                                        formattedLyrics += `<div class="stanza"><div class="stanza-header">${currentStanza}</div></div>`;
+                                    }
+                                    currentStanza = line;
+                                } else if (line) {
+                                    if (currentStanza) {
+                                        formattedLyrics += `<div class="stanza"><div class="stanza-header">${currentStanza}</div><p>${line}</p></div>`;
+                                        currentStanza = '';
+                                    } else {
+                                        formattedLyrics += `<p>${line}</p>`;
+                                    }
+                                }
+                            });
+                            if (currentStanza) {
+                                formattedLyrics += `<div class="stanza"><div class="stanza-header">${currentStanza}</div></div>`;
+                            }
+                            lyricsContent.innerHTML = formattedLyrics || 'No lyrics available';
+                            lyricsPanel.classList.add('active');
+                        })
+                        .catch(error => {
+                            console.error('Error loading lyrics:', error);
+                            lyricsContent.textContent = 'Error loading lyrics';
+                            lyricsPanel.classList.add('active');
+                        });
+                } else {
+                    lyricsContent.textContent = 'No song playing';
+                    lyricsPanel.classList.add('active');
+                }
+            } else {
+                lyricsPanel.classList.remove('active');
+            }
+        }
+    </script>
+</body>
+</html>

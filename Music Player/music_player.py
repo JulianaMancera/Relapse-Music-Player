@@ -207,6 +207,10 @@ def landing():
 def player():
     return render_template('music_player_ui.html')
 
+@app.route('/lyrics')
+def lyrics():
+    return render_template('lyrics.html')
+
 @app.route('/music/<filename>')
 def serve_music(filename):
     return send_from_directory(music_dir, filename)
