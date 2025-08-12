@@ -59,13 +59,14 @@ def recognize_gesture(landmarks):
         return None
     
     wrist = landmarks[0]
+    thumb_tip = landmarks[4]
     index_tip = landmarks[8]
     middle_tip = landmarks[12]
     ring_tip = landmarks[16]
     pinky_tip = landmarks[20]
     
     # Play: All fingers up
-    if (index_tip.y < landmarks[6].y - 0.05 and 
+    if (index_tip.y < landmarks[ G].y - 0.05 and 
         middle_tip.y < landmarks[10].y - 0.05 and
         ring_tip.y < landmarks[14].y - 0.05 and 
         pinky_tip.y < landmarks[18].y - 0.05):
@@ -97,6 +98,26 @@ def recognize_gesture(landmarks):
         last_gesture_time = current_time
         current_gesture = "next"
         return "next"
+    
+    # Volume Up: Thumb up, other fingers down
+    if (thumb_tip.y < wrist.y - 0.1 and
+        index_tip.y > landmarks[6].y and
+        middle_tip.y > landmarks[10].y and
+        ring_tip.y > landmarks[14].y and
+        pinky_tip.y > landmarks[18].y):
+        last_gesture_time = current_time
+        current_gesture = "volume_up"
+        return "volume_up"
+    
+    # Volume Down: Thumb down, other fingers down
+    if (thumb_tip.y > wrist.y + 0.1 and
+        index_tip.y > landmarks[6].y and
+        middle_tip.y > landmarks[10].y and
+        ring_tip.y > landmarks[14].y and
+        pinky_tip.y > landmarks[18].y):
+        last_gesture_time = current_time
+        current_gesture = "volume_down"
+        return "volume_down"
     
     current_gesture = None
     return None
@@ -161,6 +182,16 @@ def handle_gesture(gesture):
     elif gesture == "previous":
         previous_song()
         is_playing = True
+    elif gesture == "volume_up":
+        current_volume = pygame.mixer.music.get_volume()
+        new_volume = min(1.0, current_volume + 0.1)
+        pygame.mixer.music.set_volume(new_volume)
+        logging.info(f"{datetime.now()}: Volume increased to {new_volume}")
+    elif gesture == "volume_down":
+        current_volume = pygame.mixer.music.get_volume()
+        new_volume = max(0.0, current_volume - 0.1)
+        pygame.mixer.music.set_volume(new_volume)
+        logging.info(f"{datetime.now()}: Volume decreased to {new_volume}")
 
 # Music control functions
 def play_song():
@@ -268,6 +299,16 @@ def get_state():
         'is_playing': is_playing,
         'is_camera_active': is_camera_active
     })
+
+@app.route('/control/volume/<float:volume>', methods=['POST'])
+def set_volume(volume):
+    if 0.0 <= volume <= 1.0:
+        pygame.mixer.music.set_volume(volume)
+        logging.info(f"{datetime.now()}: Volume set to {volume}")
+        return jsonify({'status': 'success', 'volume': volume})
+    else:
+        logging.warning(f"{datetime.now()}: Invalid volume value {volume}")
+        return jsonify({'status': 'error', 'message': 'Volume must be between 0.0 and 1.0'})
 
 if __name__ == "__main__":
     import atexit
