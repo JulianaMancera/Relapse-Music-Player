@@ -1,5 +1,5 @@
 import os
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Suppress TensorFlow oneDNN warnings
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0' 
 import cv2
 import mediapipe as mp
 import pygame
@@ -22,6 +22,7 @@ playlist = [file for file in os.listdir(music_dir) if file.endswith(('.mp3', '.w
 # Initialize Pygame mixer with error handling
 try:
     pygame.mixer.init()
+    pygame.mixer.music.set_volume(0.5)  # Set default volume to 50%
 except pygame.error as e:
     logging.error(f"{datetime.now()}: Failed to initialize Pygame mixer - {e}")
     raise
@@ -30,22 +31,35 @@ current_song = None
 current_index = 0
 current_position = 0  # Track playback position in milliseconds
 is_playing = False
-is_camera_active = True  # Track camera state
+is_camera_active = False  # Initialize camera as closed
 last_gesture_time = 0  # For gesture debouncing
-gesture_cooldown = 1.0  # 1-second cooldown between gestures
+gesture_cooldown = 0.7  # Adjusted cooldown for stable gesture detection
 current_gesture = None  # To persist gesture display
+current_volume = 0.5  # Track current volume
 
 # Initialize MediaPipe Hands
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
-hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.9, min_tracking_confidence=0.9)
-cap = cv2.VideoCapture(0)
-if not cap.isOpened():
-    logging.error(f"{datetime.now()}: Failed to open webcam. Check connection or permissions.")
-    is_camera_active = False  # Disable camera-related functionality
-else:
-    cap.set(3, 320)  # Reduced width
-    cap.set(4, 240)  # Reduced height
+hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7, min_tracking_confidence=0.7)
+
+# Function to find available cameras
+def find_usb_camera():
+    index = 0
+    max_attempts = 10  # Limit the number of camera indices to check
+    while index < max_attempts:
+        temp_cap = cv2.VideoCapture(index)
+        if temp_cap.isOpened():
+            logging.info(f"{datetime.now()}: Found camera at index {index}")
+            temp_cap.release()
+            return index
+        temp_cap.release()
+        index += 1
+    logging.error(f"{datetime.now()}: No USB camera found after checking {max_attempts} indices")
+    return None
+
+# Initialize camera (only when needed)
+camera_index = find_usb_camera()
+cap = None
 
 # Setup logging
 logging.basicConfig(filename='gesture_log.txt', level=logging.INFO)
@@ -66,55 +80,55 @@ def recognize_gesture(landmarks):
     pinky_tip = landmarks[20]
     
     # Play: All fingers up
-    if (index_tip.y < landmarks[ G].y - 0.05 and 
-        middle_tip.y < landmarks[10].y - 0.05 and
-        ring_tip.y < landmarks[14].y - 0.05 and 
-        pinky_tip.y < landmarks[18].y - 0.05):
+    if (index_tip.y < landmarks[6].y - 0.03 and 
+        middle_tip.y < landmarks[10].y - 0.03 and
+        ring_tip.y < landmarks[14].y - 0.03 and 
+        pinky_tip.y < landmarks[18].y - 0.03):
         last_gesture_time = current_time
         current_gesture = "play"
         return "play"
     
     # Pause: All fingers down
-    if (index_tip.y > landmarks[6].y + 0.05 and 
-        middle_tip.y > landmarks[10].y + 0.05 and
-        ring_tip.y > landmarks[14].y + 0.05 and 
-        pinky_tip.y > landmarks[18].y + 0.05):
+    if (index_tip.y > landmarks[6].y + 0.03 and 
+        middle_tip.y > landmarks[10].y + 0.03 and
+        ring_tip.y > landmarks[14].y + 0.03 and 
+        pinky_tip.y > landmarks[18].y + 0.03):
         last_gesture_time = current_time
         current_gesture = "pause"
         return "pause"
     
     # Previous: Two fingers (index and middle) swiping left
-    if (index_tip.x < wrist.x - 0.1 and middle_tip.x < wrist.x - 0.1 and
-        abs(index_tip.y - middle_tip.y) < 0.05 and
+    if (index_tip.x < wrist.x - 0.08 and middle_tip.x < wrist.x - 0.08 and
+        abs(index_tip.y - middle_tip.y) < 0.03 and
         ring_tip.y > landmarks[14].y and pinky_tip.y > landmarks[18].y):
         last_gesture_time = current_time
         current_gesture = "previous"
         return "previous"
     
     # Next: Two fingers (index and middle) swiping right
-    if (index_tip.x > wrist.x + 0.1 and middle_tip.x > wrist.x + 0.1 and
-        abs(index_tip.y - middle_tip.y) < 0.05 and
+    if (index_tip.x > wrist.x + 0.08 and middle_tip.x > wrist.x + 0.08 and
+        abs(index_tip.y - middle_tip.y) < 0.03 and
         ring_tip.y > landmarks[14].y and pinky_tip.y > landmarks[18].y):
         last_gesture_time = current_time
         current_gesture = "next"
         return "next"
     
     # Volume Up: Thumb up, other fingers down
-    if (thumb_tip.y < wrist.y - 0.1 and
-        index_tip.y > landmarks[6].y and
-        middle_tip.y > landmarks[10].y and
-        ring_tip.y > landmarks[14].y and
-        pinky_tip.y > landmarks[18].y):
+    if (thumb_tip.y < wrist.y - 0.06 and thumb_tip.x > wrist.x - 0.05 and thumb_tip.x < wrist.x + 0.05 and
+        index_tip.y > landmarks[6].y + 0.04 and
+        middle_tip.y > landmarks[10].y + 0.04 and
+        ring_tip.y > landmarks[14].y + 0.04 and
+        pinky_tip.y > landmarks[18].y + 0.04):
         last_gesture_time = current_time
         current_gesture = "volume_up"
         return "volume_up"
     
     # Volume Down: Thumb down, other fingers down
-    if (thumb_tip.y > wrist.y + 0.1 and
-        index_tip.y > landmarks[6].y and
-        middle_tip.y > landmarks[10].y and
-        ring_tip.y > landmarks[14].y and
-        pinky_tip.y > landmarks[18].y):
+    if (thumb_tip.y > wrist.y + 0.06 and thumb_tip.x > wrist.x - 0.05 and thumb_tip.x < wrist.x + 0.05 and
+        index_tip.y > landmarks[6].y + 0.04 and
+        middle_tip.y > landmarks[10].y + 0.04 and
+        ring_tip.y > landmarks[14].y + 0.04 and
+        pinky_tip.y > landmarks[18].y + 0.04):
         last_gesture_time = current_time
         current_gesture = "volume_down"
         return "volume_down"
@@ -143,7 +157,7 @@ def generate_video_feed():
                 mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
                 gesture = recognize_gesture(hand_landmarks.landmark)
                 if gesture:
-                    logging.info(f"{datetime.now()}: Detected gesture - {gesture}")
+                    logging.info(f"{datetime.now()}: Detected gesture - {gesture} (thumb_tip: {hand_landmarks.landmark[4].x:.2f}, {hand_landmarks.landmark[4].y:.2f})")
                     handle_gesture(gesture)
         else:
             logging.info(f"{datetime.now()}: No hand landmarks detected")
@@ -165,7 +179,7 @@ def generate_video_feed():
 
 # Handle gesture actions
 def handle_gesture(gesture):
-    global current_song, current_index, current_position, is_playing
+    global current_song, current_index, current_position, is_playing, current_volume
     if not playlist:
         logging.warning(f"{datetime.now()}: Playlist is empty")
         return
@@ -183,19 +197,23 @@ def handle_gesture(gesture):
         previous_song()
         is_playing = True
     elif gesture == "volume_up":
-        current_volume = pygame.mixer.music.get_volume()
-        new_volume = min(1.0, current_volume + 0.1)
-        pygame.mixer.music.set_volume(new_volume)
-        logging.info(f"{datetime.now()}: Volume increased to {new_volume}")
+        current_volume = min(1.0, current_volume + 0.02)  # Slightly larger increment for noticeable change
+        try:
+            pygame.mixer.music.set_volume(current_volume)
+            logging.info(f"{datetime.now()}: Volume increased to {current_volume:.2f}")
+        except pygame.error as e:
+            logging.error(f"{datetime.now()}: Failed to set volume - {e}")
     elif gesture == "volume_down":
-        current_volume = pygame.mixer.music.get_volume()
-        new_volume = max(0.0, current_volume - 0.1)
-        pygame.mixer.music.set_volume(new_volume)
-        logging.info(f"{datetime.now()}: Volume decreased to {new_volume}")
+        current_volume = max(0.0, current_volume - 0.02)  # Ensure volume can reach 0
+        try:
+            pygame.mixer.music.set_volume(current_volume)
+            logging.info(f"{datetime.now()}: Volume decreased to {current_volume:.2f}")
+        except pygame.error as e:
+            logging.error(f"{datetime.now()}: Failed to set volume - {e}")
 
 # Music control functions
 def play_song():
-    global current_song, current_index, current_position, is_playing
+    global current_song, current_index, current_position, is_playing, current_volume
     if not playlist:
         logging.warning(f"{datetime.now()}: No songs in playlist")
         return
@@ -203,13 +221,14 @@ def play_song():
         current_song = os.path.join(music_dir, playlist[current_index])
         try:
             pygame.mixer.music.load(current_song)
+            pygame.mixer.music.set_volume(current_volume)  # Ensure volume is applied
             if current_position > 0:
                 pygame.mixer.music.play(start=current_position / 1000.0)
                 current_position = 0
             else:
                 pygame.mixer.music.play()
             is_playing = True
-            logging.info(f"{datetime.now()}: Playing {current_song} at {current_position}ms")
+            logging.info(f"{datetime.now()}: Playing {current_song} at {current_position}ms with volume {current_volume:.2f}")
         except pygame.error as e:
             logging.error(f"{datetime.now()}: Playback error - {e}")
 
@@ -261,7 +280,7 @@ def video_feed():
 
 @app.route('/control/<action>', methods=['POST'])
 def control(action):
-    global is_playing, is_camera_active, cap
+    global is_playing, is_camera_active, cap, camera_index
     if not playlist:
         return jsonify({'status': 'error', 'message': 'Playlist is empty'})
     if action == 'play':
@@ -278,18 +297,23 @@ def control(action):
         is_playing = True
     elif action == 'toggle_camera':
         is_camera_active = not is_camera_active
-        if not is_camera_active and cap:
-            cap.release()
-            logging.info(f"{datetime.now()}: Camera closed")
-        elif is_camera_active and not cap:
-            cap = cv2.VideoCapture(0)
-            if cap.isOpened():
-                cap.set(3, 320)
-                cap.set(4, 240)
-                logging.info(f"{datetime.now()}: Camera reopened")
-            else:
-                is_camera_active = False
-                logging.error(f"{datetime.now()}: Failed to reopen camera")
+        if not is_camera_active:
+            if cap and cap.isOpened():
+                cap.release()
+                cap = None
+                logging.info(f"{datetime.now()}: Camera closed")
+        else:
+            if not cap:
+                cap = cv2.VideoCapture(camera_index)
+                if cap.isOpened():
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+                    logging.info(f"{datetime.now()}: Camera reopened at index {camera_index}")
+                else:
+                    is_camera_active = False
+                    logging.error(f"{datetime.now()}: Failed to reopen camera at index {camera_index}")
+                    return jsonify({'status': 'error', 'message': 'Failed to reopen camera'})
+        return jsonify({'status': 'success', 'is_camera_active': is_camera_active})
     return jsonify({'status': 'success'})
 
 @app.route('/api/state')
@@ -297,15 +321,22 @@ def get_state():
     return jsonify({
         'current_index': current_index,
         'is_playing': is_playing,
-        'is_camera_active': is_camera_active
+        'is_camera_active': is_camera_active,
+        'volume': round(current_volume, 2)  # Include current volume
     })
 
 @app.route('/control/volume/<float:volume>', methods=['POST'])
 def set_volume(volume):
+    global current_volume
     if 0.0 <= volume <= 1.0:
-        pygame.mixer.music.set_volume(volume)
-        logging.info(f"{datetime.now()}: Volume set to {volume}")
-        return jsonify({'status': 'success', 'volume': volume})
+        try:
+            current_volume = volume
+            pygame.mixer.music.set_volume(current_volume)
+            logging.info(f"{datetime.now()}: Volume set to {current_volume:.2f}")
+            return jsonify({'status': 'success', 'volume': round(current_volume, 2)})
+        except pygame.error as e:
+            logging.error(f"{datetime.now()}: Failed to set volume - {e}")
+            return jsonify({'status': 'error', 'message': 'Failed to set volume'})
     else:
         logging.warning(f"{datetime.now()}: Invalid volume value {volume}")
         return jsonify({'status': 'error', 'message': 'Volume must be between 0.0 and 1.0'})
