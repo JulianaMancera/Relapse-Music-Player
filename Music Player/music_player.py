@@ -197,14 +197,14 @@ def handle_gesture(gesture):
         previous_song()
         is_playing = True
     elif gesture == "volume_up":
-        current_volume = min(1.0, current_volume + 0.02)  # Slightly larger increment for noticeable change
+        current_volume = min(1.0, current_volume + 0.02)  
         try:
             pygame.mixer.music.set_volume(current_volume)
             logging.info(f"{datetime.now()}: Volume increased to {current_volume:.2f}")
         except pygame.error as e:
             logging.error(f"{datetime.now()}: Failed to set volume - {e}")
     elif gesture == "volume_down":
-        current_volume = max(0.0, current_volume - 0.02)  # Ensure volume can reach 0
+        current_volume = max(0.0, current_volume - 0.00) 
         try:
             pygame.mixer.music.set_volume(current_volume)
             logging.info(f"{datetime.now()}: Volume decreased to {current_volume:.2f}")
@@ -221,7 +221,7 @@ def play_song():
         current_song = os.path.join(music_dir, playlist[current_index])
         try:
             pygame.mixer.music.load(current_song)
-            pygame.mixer.music.set_volume(current_volume)  # Ensure volume is applied
+            pygame.mixer.music.set_volume(current_volume)  
             if current_position > 0:
                 pygame.mixer.music.play(start=current_position / 1000.0)
                 current_position = 0
@@ -322,7 +322,7 @@ def get_state():
         'current_index': current_index,
         'is_playing': is_playing,
         'is_camera_active': is_camera_active,
-        'volume': round(current_volume, 2)  # Include current volume
+        'volume': round(current_volume, 2)  
     })
 
 @app.route('/control/volume/<float:volume>', methods=['POST'])
