@@ -8,7 +8,7 @@
 ## ✨ Features
 - **🎵 Audio Support:** Play MP3 and WAV audio files
 - **🌐 Web Interface:** Clean, intuitive browser-based UI
-**🤚 Hand Gesture Controls:** Control playback without touching your device
+- **🤚 Hand Gesture Controls:** Control playback without touching your device
   - **Open Palm** → Play/Resume
   - **Fist** → Pause
   - **Two Fingers Swipe Left** → Previous Track
