@@ -980,6 +980,13 @@
             lyricsPanel.classList.remove('active');
         }
     }
+
+    function getGenre(filename) {
+    fetch(`/classify_genre/${filename}`).then(r => r.json()).then(data => {
+        // Update UI with data.genre
+        console.log(`Genre: ${data.genre}`);
+    });
+}
 </script>
 </body>
 </html>

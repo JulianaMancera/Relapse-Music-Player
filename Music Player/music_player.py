@@ -8,9 +8,16 @@ from datetime import datetime
 from flask import Flask, render_template, jsonify, send_from_directory, Response
 import threading
 import time
+import tensorflow as tf
+import tensorflow_hub as hub
 import numpy as np
+from pydub import AudioSegment
+from io import BytesIO  # For potential in-memory handling, but using files here
 
 app = Flask(__name__)
+
+# Load YAMNet model from TensorFlow Hub
+yamnet_model = hub.load('https://tfhub.dev/google/yamnet/1')
 
 # Set up directories
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -18,6 +25,9 @@ music_dir = os.path.join(script_dir, "music")
 lyrics_dir = os.path.join(script_dir, "lyrics")
 static_dir = os.path.join(script_dir, "static")
 playlist = [file for file in os.listdir(music_dir) if file.endswith(('.mp3', '.wav'))]
+
+# Cache for pre-computed genres
+playlist_genres = {}
 
 # Initialize Pygame mixer with error handling
 try:
@@ -64,7 +74,72 @@ cap = None
 # Setup logging
 logging.basicConfig(filename='gesture_log.txt', level=logging.INFO)
 
-# Gesture recognition logic
+# Genre classification function using YAMNet
+def classify_genre(audio_path):
+    try:
+        # Handle MP3 conversion to WAV if needed
+        original_path = audio_path
+        if audio_path.endswith('.mp3'):
+            temp_wav_path = audio_path.replace('.mp3', '_temp.wav')
+            audio = AudioSegment.from_mp3(audio_path)
+            audio.export(temp_wav_path, format="wav")
+            audio_path = temp_wav_path
+        
+        # Load and preprocess audio (YAMNet expects WAV, 16kHz, mono)
+        waveform, sample_rate = tf.audio.decode_wav(tf.io.read_file(audio_path))
+        waveform = tf.squeeze(waveform, axis=-1)  # Convert to mono
+        if sample_rate != 16000:
+            waveform = tf.audio.resample(waveform, sample_rate, 16000)
+        
+        # Get predictions (process full waveform; for speed, could slice to first 10s)
+        scores, embeddings, spectrogram = yamnet_model(waveform)
+        
+        # Simplified genre mapping based on YAMNet's 521 classes
+        genre_map = {
+            'Pop music': ['Pop music', 'Dance music', 'Rhythm and blues'],
+            'Rock music': ['Rock music', 'Alternative rock', 'Guitar'],
+            'Classical music': ['Classical music', 'Orchestral music', 'Piano'],
+            'Jazz music': ['Jazz', 'Saxophone', 'Trumpet'],
+            'Electronic music': ['Electronic music', 'Techno', 'Synthesizer'],
+            'Hip hop music': ['Hip hop music', 'Rap music'],
+            'Country music': ['Country music', 'Acoustic guitar']
+        }
+        class_names = yamnet_model.class_names
+        top_score_idx = tf.argmax(scores[0]).numpy()  # Top class for the entire audio
+        top_class = class_names[top_score_idx].decode('utf-8') if isinstance(class_names[top_score_idx], bytes) else class_names[top_score_idx]
+        
+        # Map to genre
+        for genre, labels in genre_map.items():
+            if any(label.lower() in top_class.lower() for label in labels):
+                result = genre
+                break
+        else:
+            result = "Unknown"
+        
+        # Clean up temp WAV file
+        if audio_path != original_path and os.path.exists(audio_path):
+            os.remove(audio_path)
+        
+        logging.info(f"{datetime.now()}: Genre classified for {os.path.basename(original_path)}: {result} (top class: {top_class})")
+        return result
+    except Exception as e:
+        logging.error(f"{datetime.now()}: Error classifying genre for {audio_path}: {str(e)}")
+        if 'temp_wav_path' in locals() and os.path.exists(temp_wav_path):
+            os.remove(temp_wav_path)
+        return "Error"
+
+# Pre-compute genres for playlist on startup
+def precompute_genres():
+    global playlist_genres
+    for filename in playlist:
+        audio_path = os.path.join(music_dir, filename)
+        genre = classify_genre(audio_path)
+        playlist_genres[filename] = genre
+    logging.info(f"{datetime.now()}: Pre-computed genres for {len(playlist)} tracks")
+
+precompute_genres()  # Run on startup
+
+# Gesture recognition logic (extended with thumbs_up)
 def recognize_gesture(landmarks):
     global last_gesture_time, current_gesture
     current_time = time.time()
@@ -133,6 +208,15 @@ def recognize_gesture(landmarks):
         current_gesture = "volume_down"
         return "volume_down"
     
+    # New: Thumbs Up for Genre Classification (thumb up, other fingers curled down)
+    if (thumb_tip.y < wrist.y - 0.06 and thumb_tip.x > wrist.x - 0.05 and thumb_tip.x < wrist.x + 0.05 and
+        index_tip.y > landmarks[6].y + 0.03 and middle_tip.y > landmarks[10].y + 0.03 and
+        ring_tip.y > landmarks[14].y + 0.03 and pinky_tip.y > landmarks[18].y + 0.03 and
+        abs(index_tip.y - middle_tip.y) < 0.05):  # Fingers somewhat aligned/curled
+        last_gesture_time = current_time
+        current_gesture = "thumbs_up"
+        return "thumbs_up"
+    
     current_gesture = None
     return None
 
@@ -177,7 +261,7 @@ def generate_video_feed():
     yield (b'--frame\r\n'
            b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
-# Handle gesture actions
+# Handle gesture actions (extended with thumbs_up)
 def handle_gesture(gesture):
     global current_song, current_index, current_position, is_playing, current_volume
     if not playlist:
@@ -204,12 +288,23 @@ def handle_gesture(gesture):
         except pygame.error as e:
             logging.error(f"{datetime.now()}: Failed to set volume - {e}")
     elif gesture == "volume_down":
-        current_volume = max(0.0, current_volume - 0.00) 
+        current_volume = max(0.0, current_volume - 0.02)  # Fixed: was 0.00
         try:
             pygame.mixer.music.set_volume(current_volume)
             logging.info(f"{datetime.now()}: Volume decreased to {current_volume:.2f}")
         except pygame.error as e:
             logging.error(f"{datetime.now()}: Failed to set volume - {e}")
+    elif gesture == "thumbs_up" and current_song:
+        # Trigger genre classification for current song
+        filename = os.path.basename(current_song)
+        if filename in playlist_genres:
+            genre = playlist_genres[filename]
+        else:
+            audio_path = current_song
+            genre = classify_genre(audio_path)
+            playlist_genres[filename] = genre
+        logging.info(f"{datetime.now()}: Thumbs up gesture - Genre for {filename}: {genre}")
+        # Optional: Could emit to frontend via WebSocket here
 
 # Music control functions
 def play_song():
@@ -271,7 +366,25 @@ def serve_lyrics(filename):
 
 @app.route('/api/playlist')
 def get_playlist():
-    return jsonify(playlist)
+    # Enhanced with genres
+    enhanced_playlist = []
+    for track in playlist:
+        enhanced_playlist.append({
+            'filename': track,
+            'genre': playlist_genres.get(track, 'Unknown')
+        })
+    return jsonify(enhanced_playlist)
+
+@app.route('/classify_genre/<filename>')
+def classify_genre_route(filename):
+    if filename not in playlist:
+        return jsonify({'error': 'File not found in playlist'}), 404
+    audio_path = os.path.join(music_dir, filename)
+    if filename in playlist_genres:
+        return jsonify({'filename': filename, 'genre': playlist_genres[filename]})
+    genre = classify_genre(audio_path)
+    playlist_genres[filename] = genre
+    return jsonify({'filename': filename, 'genre': genre})
 
 @app.route('/video_feed')
 def video_feed():
@@ -322,7 +435,8 @@ def get_state():
         'current_index': current_index,
         'is_playing': is_playing,
         'is_camera_active': is_camera_active,
-        'volume': round(current_volume, 2)  
+        'volume': round(current_volume, 2),
+        'current_genre': playlist_genres.get(playlist[current_index] if playlist else '', 'Unknown') if playlist else 'Unknown'
     })
 
 @app.route('/control/volume/<float:volume>', methods=['POST'])
