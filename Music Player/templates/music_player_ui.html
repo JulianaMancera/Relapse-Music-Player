@@ -600,6 +600,12 @@
         <div class="webcam-container" id="webcamContainer">
             <img src="" id="webcamFeed" alt="Webcam Feed">
         </div>
+
+        <div class="camera-selector" style="position: absolute; top: 20px; right: 20px; z-index: 10; display: none;" id="cameraSelector">
+            <button onclick="loadCameras()" style="padding: 5px 10px; font-size: 0.8em; margin-bottom: 5px;">Detect Cameras</button>
+            <select id="cameraSelect" style="width: 100%; padding: 5px; font-size: 0.8em;"></select>
+            <button onclick="switchCamera()" style="width: 100%; padding: 5px; margin-top: 5px; font-size: 0.8em;">Use Selected</button>
+        </div>
         
         <div class="player">
             <h2>Relapse Music Player</h2>
@@ -662,6 +668,8 @@
     let sidebarVisible = true;
     let cvEnabled = false;
     let isLyricsActive = false;
+    let availableCameras = [];
+    let currentCamera = -1;
 
     const vinyl = document.getElementById('vinylDisc');
     const progress = document.getElementById('progress');
@@ -781,6 +789,43 @@
                 webcamFeed.src = '';
             });
     }
+
+    async function loadCameras() {
+    const res = await fetch('/api/cameras');
+    const data = await res.json();
+    availableCameras = data.available;
+    currentCamera = data.current;
+
+    const select = document.getElementById('cameraSelect');
+    select.innerHTML = '';
+    availableCameras.forEach(idx => {
+        const opt = document.createElement('option');
+        opt.value = idx;
+        opt.textContent = `Camera ${idx}${idx === currentCamera ? ' (active)' : ''}`;
+        if (idx === currentCamera) opt.selected = true;
+        select.appendChild(opt);
+    });
+
+    document.getElementById('cameraSelector').style.display = 'block';
+}
+
+async function switchCamera() {
+    const idx = document.getElementById('cameraSelect').value;
+    await fetch(`/control/camera/${idx}`, { method: 'POST' });
+    loadCameras();
+    alert(`Switched to Camera ${idx}`);
+}
+
+// Show selector when CV is enabled
+document.getElementById('cvBtn').addEventListener('click', () => {
+    setTimeout(() => {
+        if (cvEnabled) {
+            loadCameras();
+        } else {
+            document.getElementById('cameraSelector').style.display = 'none';
+        }
+    }, 300);
+});
 
     function muteToggle() {
         const newVolume = parseFloat(volume.value) > 0 ? 0 : previousVolume;
