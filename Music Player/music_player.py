@@ -44,42 +44,71 @@ except pygame.error as e:
 
 current_song = None
 current_index = 0
-current_position = 0  # Track playback position in milliseconds
+current_position = 0  
 is_playing = False
-is_camera_active = False  # Initialize camera as closed
-last_gesture_time = 0  # For gesture debouncing
-gesture_cooldown = 0.7  # Adjusted cooldown for stable gesture detection
-current_gesture = None  # To persist gesture display
-current_volume = 0.5  # Track current volume
+is_camera_active = False  
+last_gesture_time = 0 
+gesture_cooldown = 0.7 
+current_gesture = None  
+current_volume = 0.5  
 
 # Initialize MediaPipe Hands
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7, min_tracking_confidence=0.7)
 
-# Function to find available cameras
-def find_usb_camera():
-    index = 0
-    max_attempts = 10  # Limit the number of camera indices to check
-    while index < max_attempts:
-        temp_cap = cv2.VideoCapture(index)
-        if temp_cap.isOpened():
-            logging.info(f"{datetime.now()}: Found camera at index {index}")
-            temp_cap.release()
-            return index
-        temp_cap.release()
-        index += 1
-    logging.error(f"{datetime.now()}: No USB camera found after checking {max_attempts} indices")
-    return None
-
-# Initialize camera (only when needed)
-camera_index = find_usb_camera()
+# Camera handling
 cap = None
+preferred_cam_idx = None  
 
 # Setup logging
-logging.basicConfig(filename='gesture_log.txt', level=logging.INFO)
+logging.basicConfig(filename='gesture_log.txt', level=logging.INFO, 
+                    format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
-# Gesture recognition logic
+def find_usb_camera():
+    for idx in range(1, 10):
+        backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
+        temp = cv2.VideoCapture(idx, backend)
+        if temp.isOpened():
+            temp.release()
+            logging.info(f"{datetime.now()}: USB webcam found at index {idx}")
+            return idx
+        temp.release()
+    logging.info(f"{datetime.now()}: No USB webcam detected")
+    return None
+
+def open_camera():
+    """
+    Creates (or recreates) a fresh cv2.VideoCapture.
+    Priority: USB webcam → built-in (index 0).
+    Called every time the camera is toggled ON.
+    """
+    global cap, preferred_cam_idx
+
+    # Release any previous capture
+    if cap and cap.isOpened():
+        cap.release()
+
+    usb_idx = find_usb_camera()
+    cam_idx = usb_idx if usb_idx is not None else 0
+    backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
+    cap = cv2.VideoCapture(cam_idx, backend)
+
+    if not cap.isOpened():
+        logging.error(f"{datetime.now()}: Failed to open camera index {cam_idx}")
+        return False
+
+    # Force modest resolution & FPS to reduce load and prevent corruption
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  320)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+    cap.set(cv2.CAP_PROP_FPS, 30)
+
+    preferred_cam_idx = cam_idx
+    logging.info(f"{datetime.now()}: Camera opened – index {cam_idx} "
+                 f"({'USB' if usb_idx is not None else 'Built-in'})")
+    return True
+
+# GESTURE RECOGNITION
 def recognize_gesture(landmarks):
     global last_gesture_time, current_gesture
     current_time = time.time()
@@ -151,17 +180,20 @@ def recognize_gesture(landmarks):
     current_gesture = None
     return None
 
-# Video feed generator
+# VIDEO FEED GENERATOR
 def generate_video_feed():
     global is_playing, is_camera_active, cap, current_gesture
     while is_camera_active:
         if not cap or not cap.isOpened():
-            logging.error(f"{datetime.now()}: Webcam not available")
+            logging.error(f"{datetime.now()}: Camera stream lost – stopping feed")
             break
+
         success, frame = cap.read()
         if not success:
-            logging.error(f"{datetime.now()}: Failed to read frame from webcam")
-            break
+            logging.warning(f"{datetime.now()}: Frame read failed – retrying…")
+            time.sleep(0.1)
+            continue
+
         frame = cv2.flip(frame, 1)
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
@@ -172,7 +204,7 @@ def generate_video_feed():
                 mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
                 gesture = recognize_gesture(hand_landmarks.landmark)
                 if gesture:
-                    logging.info(f"{datetime.now()}: Detected gesture - {gesture} (thumb_tip: {hand_landmarks.landmark[4].x:.2f}, {hand_landmarks.landmark[4].y:.2f})")
+                    logging.info(f"{datetime.now()}: Detected gesture - {gesture}")
                     handle_gesture(gesture)
         else:
             logging.info(f"{datetime.now()}: No hand landmarks detected")
@@ -182,17 +214,19 @@ def generate_video_feed():
                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
         
         _, buffer = cv2.imencode('.jpg', frame)
-        frame = buffer.tobytes()
+        frame_bytes = buffer.tobytes()
         yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
     
-    blank_frame = np.zeros((240, 320, 3), dtype=np.uint8)
-    _, buffer = cv2.imencode('.jpg', blank_frame)
-    frame = buffer.tobytes()
+    # Send a blank frame when camera is off
+    blank = np.zeros((240, 320, 3), dtype=np.uint8)
+    _, buf = cv2.imencode('.jpg', blank)
     yield (b'--frame\r\n'
-           b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+           b'Content-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
 
-# Handle gesture actions
+# -------------------------------------------------
+# GESTURE → MUSIC ACTIONS
+# -------------------------------------------------
 def handle_gesture(gesture):
     global current_song, current_index, current_position, is_playing, current_volume
     if not playlist:
@@ -219,14 +253,16 @@ def handle_gesture(gesture):
         except pygame.error as e:
             logging.error(f"{datetime.now()}: Failed to set volume - {e}")
     elif gesture == "volume_down":
-        current_volume = max(0.0, current_volume - 0.00) 
+        current_volume = max(0.0, current_volume - 0.02)  # Fixed typo from 0.00
         try:
             pygame.mixer.music.set_volume(current_volume)
             logging.info(f"{datetime.now()}: Volume decreased to {current_volume:.2f}")
         except pygame.error as e:
             logging.error(f"{datetime.now()}: Failed to set volume - {e}")
 
-# Music control functions
+# -------------------------------------------------
+# MUSIC CONTROL FUNCTIONS
+# -------------------------------------------------
 def play_song():
     global current_song, current_index, current_position, is_playing, current_volume
     if not playlist:
@@ -263,7 +299,9 @@ def previous_song():
     current_index = (current_index - 1) % len(playlist)
     play_song()
 
-# Flask routes
+# -------------------------------------------------
+# FLASK ROUTES
+# -------------------------------------------------
 @app.route('/')
 def landing():
     return render_template('index.html')
@@ -295,9 +333,10 @@ def video_feed():
 
 @app.route('/control/<action>', methods=['POST'])
 def control(action):
-    global is_playing, is_camera_active, cap, camera_index
+    global is_playing, is_camera_active, cap, current_volume
     if not playlist:
         return jsonify({'status': 'error', 'message': 'Playlist is empty'})
+
     if action == 'play':
         play_song()
         is_playing = True
@@ -312,23 +351,21 @@ def control(action):
         is_playing = True
     elif action == 'toggle_camera':
         is_camera_active = not is_camera_active
-        if not is_camera_active:
+
+        if is_camera_active:
+            # ---- OPEN / RE-OPEN CAMERA ----
+            if not open_camera():
+                is_camera_active = False
+                return jsonify({'status': 'error',
+                                'message': 'Could not open any camera'})
+        else:
+            # ---- CLOSE CAMERA ----
             if cap and cap.isOpened():
                 cap.release()
                 cap = None
-                logging.info(f"{datetime.now()}: Camera closed")
-        else:
-            if not cap:
-                cap = cv2.VideoCapture(camera_index)
-                if cap.isOpened():
-                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
-                    logging.info(f"{datetime.now()}: Camera reopened at index {camera_index}")
-                else:
-                    is_camera_active = False
-                    logging.error(f"{datetime.now()}: Failed to reopen camera at index {camera_index}")
-                    return jsonify({'status': 'error', 'message': 'Failed to reopen camera'})
-        return jsonify({'status': 'success', 'is_camera_active': is_camera_active})
+                logging.info(f"{datetime.now()}: Camera closed by user")
+        return jsonify({'status': 'success',
+                        'is_camera_active': is_camera_active})
     return jsonify({'status': 'success'})
 
 @app.route('/api/state')
