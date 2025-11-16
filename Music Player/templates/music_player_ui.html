@@ -131,7 +131,7 @@
         }
         
         .webcam-container {
-            position: absolute;
+            position: fixed;
             top: 20px;
             left: 20px;
             width: 300px;
@@ -690,18 +690,19 @@
     const lyricsPanel = document.getElementById('lyricsPanel');
     const lyricsContent = document.getElementById('lyrics-content');
 
-    const demoPlaylist = [
-        "...Sad About You - Fly By Midnight.mp3",
-        "Always - Jay (Enhypen).mp3",
-        "Atlantis - Seafret.mp3",
-        "Cause u Have to - Lany.mp3",
-        "Cover Me - Stray Kids.mp3",
-        "Crush - David Archuleta.mp3",
-        "DLMLU - Stray Kids.mp3",
-        "Drowning - WOODZ.mp3",
-        "If You Do - GOT7.mp3",
-        "I leave - Stray Kids.mp3"
-    ];
+    async function loadPlaylist() {
+    try {
+        const response = await fetch('/api/playlist');
+        playlist = await response.json();
+        console.log("Loaded playlist:", playlist);
+        updatePlaylistUI();  // Your function to display songs
+    } catch (err) {
+        console.error("Failed to load playlist:", err);
+    }
+}
+
+// Load playlist when page opens
+window.onload = loadPlaylist;
 
     fetch('/api/playlist')
         .then(response => response.json())

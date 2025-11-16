@@ -14,10 +14,25 @@ app = Flask(__name__)
 
 # Set up directories
 script_dir = os.path.dirname(os.path.abspath(__file__))
-music_dir = os.path.join(script_dir, "music")
+music_dir = os.path.join(script_dir, "music")  
 lyrics_dir = os.path.join(script_dir, "lyrics")
 static_dir = os.path.join(script_dir, "static")
-playlist = [file for file in os.listdir(music_dir) if file.endswith(('.mp3', '.wav'))]
+
+# Dynamically load songs from 'music/' folder
+def load_playlist():
+    if not os.path.exists(music_dir):
+        logging.warning(f"{datetime.now()}: 'music' folder not found at {music_dir}")
+        return []
+    songs = [
+        f for f in os.listdir(music_dir)
+        if f.lower().endswith(('.mp3', '.wav', '.ogg', '.flac', '.m4a'))
+    ]
+    songs.sort(key=str.lower)  # Sort alphabetically (case-insensitive)
+    logging.info(f"{datetime.now()}: Loaded {len(songs)} songs from 'music/' folder")
+    return songs
+
+# Load playlist at startup
+playlist = load_playlist()
 
 # Initialize Pygame mixer with error handling
 try:
