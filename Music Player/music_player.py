@@ -224,9 +224,7 @@ def generate_video_feed():
     yield (b'--frame\r\n'
            b'Content-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
 
-# -------------------------------------------------
 # GESTURE → MUSIC ACTIONS
-# -------------------------------------------------
 def handle_gesture(gesture):
     global current_song, current_index, current_position, is_playing, current_volume
     if not playlist:
@@ -260,9 +258,7 @@ def handle_gesture(gesture):
         except pygame.error as e:
             logging.error(f"{datetime.now()}: Failed to set volume - {e}")
 
-# -------------------------------------------------
 # MUSIC CONTROL FUNCTIONS
-# -------------------------------------------------
 def play_song():
     global current_song, current_index, current_position, is_playing, current_volume
     if not playlist:
@@ -299,9 +295,7 @@ def previous_song():
     current_index = (current_index - 1) % len(playlist)
     play_song()
 
-# -------------------------------------------------
 # FLASK ROUTES
-# -------------------------------------------------
 @app.route('/')
 def landing():
     return render_template('index.html')
