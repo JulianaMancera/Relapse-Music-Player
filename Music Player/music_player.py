@@ -22,7 +22,7 @@ playlist = [file for file in os.listdir(music_dir) if file.endswith(('.mp3', '.w
 # Initialize Pygame mixer with error handling
 try:
     pygame.mixer.init()
-    pygame.mixer.music.set_volume(0.5)  # Set default volume to 50% (but need to fix to be dynamic)
+    pygame.mixer.music.set_volume(0.5)  # Set default volume to 50%
 except pygame.error as e:
     logging.error(f"{datetime.now()}: Failed to initialize Pygame mixer - {e}")
     raise
