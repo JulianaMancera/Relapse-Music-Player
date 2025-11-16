@@ -527,6 +527,14 @@
             transform: scale(1.1);
         }
 
+        @keyframes clapFlash {
+            0% { box-shadow: 0 0 30px #ff6b81, 0 0 50px #a3e4d7; }
+            50% { box-shadow: 0 0 60px #ff6b81, 0 0 80px #a3e4d7; }
+            100% { box-shadow: 0 0 30px #ff6b81, 0 0 50px #a3e4d7; }
+        }
+        .clap-effect {
+            animation: clapFlash 0.8s ease-out;
+        }
         @media (max-width: 768px) {
             .app-container {
                 flex-direction: column;
@@ -943,37 +951,33 @@ document.getElementById('cvBtn').addEventListener('click', () => {
         updateVolume(parseFloat(volume.value));
     });
 
-    function syncState() {
-        fetch('/api/state')
-            .then(response => response.json())
-            .then(data => {
-                if (data.current_index !== undefined) {
-                    currentTrack = data.current_index;
-                }
-                if (data.is_playing !== undefined) {
-                    isPlaying = data.is_playing;
-                    vinyl.classList.toggle('spinning', isPlaying);
-                    playPauseIcon.classList.toggle('fa-play', !isPlaying);
-                    playPauseIcon.classList.toggle('fa-pause', isPlaying);
-                    updateTrackDisplay();
-                }
-                if (data.is_camera_active !== undefined) {
-                    cvEnabled = data.is_camera_active;
-                    cvBtn.classList.toggle('active', cvEnabled);
-                    appContainer.classList.toggle('cv-enabled', cvEnabled);
-                    webcamContainer.classList.toggle('active', cvEnabled);
-                    webcamFeed.src = cvEnabled ? '/video_feed?' + new Date().getTime() : '';
-                    cvBtn.title = cvEnabled ? 'Disable Computer Vision' : 'Enable Computer Vision';
-                }
-                if (data.volume !== undefined) {
-                    volume.value = data.volume;
-                    volumeDisplay.textContent = `${Math.round(data.volume * 100)}%`;
-                    previousVolume = data.volume > 0 ? data.volume : previousVolume;
-                }
-                updateSongList();
-            })
-            .catch(error => console.error("Sync failed:", error));
-    }
+function syncState() {
+    fetch('/api/state')
+        .then(r => r.json())
+        .then(data => {
+            currentTrack = data.current_index;
+            isPlaying = data.is_playing;
+            vinyl.classList.toggle('spinning', isPlaying);
+            playPauseIcon.classList.toggle('fa-play', !isPlaying);
+            playPauseIcon.classList.toggle('fa-pause', isPlaying);
+            updateTrackDisplay();
+
+            cvEnabled = data.is_camera_active;
+            cvBtn.classList.toggle('active', cvEnabled);
+            appContainer.classList.toggle('cv-enabled', cvEnabled);
+            webcamContainer.classList.toggle('active', cvEnabled);
+            webcamFeed.src = cvEnabled ? '/video_feed?' + Date.now() : '';
+
+            volume.value = data.volume;
+            volumeDisplay.textContent = Math.round(data.volume * 100) + '%';
+
+            if (data.current_gesture === "clap") {
+                webcamContainer.classList.add('clap-effect');
+                setTimeout(() => webcamContainer.classList.remove('clap-effect'), 800);
+            }
+            updateSongList();
+        });
+}
 
     // Initial sync to set correct state
     syncState();
