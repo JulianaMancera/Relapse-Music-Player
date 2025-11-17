@@ -979,53 +979,47 @@ document.getElementById('cvBtn').addEventListener('click', () => {
     syncState();
     setInterval(syncState, 500); // Increased frequency for faster volume updates
 
-    function toggleLyrics() {
-        isLyricsActive = !isLyricsActive;
-        if (isLyricsActive) {
-            if (playlist.length > 0) {
-                const trackIndex = shuffle ? shuffleIndices[currentTrack] : currentTrack;
-                const song = playlist[trackIndex].replace('.mp3', '.txt');
-                fetch(`/lyrics/${song}`)
-                    .then(response => response.text())
-                    .then(lyrics => {
-                        const lines = lyrics.split('\n');
-                        let formattedLyrics = '';
-                        let currentStanza = '';
-                        lines.forEach(line => {
-                            line = line.trim();
-                            if (line.startsWith('[') && line.endsWith(']')) {
-                                if (currentStanza) {
-                                    formattedLyrics += `<div class="stanza"><div class="stanza-header">${currentStanza}</div></div>`;
-                                }
-                                currentStanza = line;
-                            } else if (line) {
-                                if (currentStanza) {
-                                    formattedLyrics += `<div class="stanza"><div class="stanza-header">${currentStanza}</div><p>${line}</p></div>`;
-                                    currentStanza = '';
-                                } else {
-                                    formattedLyrics += `<p>${line}</p>`;
-                                }
-                            }
-                        });
-                        if (currentStanza) {
-                            formattedLyrics += `<div class="stanza"><div class="stanza-header">${currentStanza}</div></div>`;
-                        }
-                        lyricsContent.innerHTML = formattedLyrics || 'No lyrics available';
-                        lyricsPanel.classList.add('active');
-                    })
-                    .catch(error => {
-                        console.error('Error loading lyrics:', error);
-                        lyricsContent.textContent = 'Error loading lyrics';
-                        lyricsPanel.classList.add('active');
-                    });
-            } else {
-                lyricsContent.textContent = 'No song playing';
-                lyricsPanel.classList.add('active');
-            }
-        } else {
-            lyricsPanel.classList.remove('active');
+   function toggleLyrics() {
+    isLyricsActive = !isLyricsActive;
+    if (isLyricsActive) {
+        if (playlist.length > 0) {
+            const trackIndex = shuffle ? shuffleIndices[currentTrack] : currentTrack;
+            const songFilename = playlist[trackIndex];  // Full .mp3 name
+
+            fetch(`/lyrics/${encodeURIComponent(songFilename)}`)
+                .then(response => {
+                    if (!response.ok) throw new Error("Not found");
+                    return response.text();
+                })
+                .then(lyrics => {
+                    lyricsContent.innerHTML = formatLyrics(lyrics);
+                    lyricsPanel.classList.add('active');
+                })
+                .catch(() => {
+                    lyricsContent.textContent = 'No lyrics available for this song.';
+                    lyricsPanel.classList.add('active');
+                });
         }
+    } else {
+        lyricsPanel.classList.remove('active');
     }
+}
+
+// Optional: nicer formatting
+function formatLyrics(text) {
+    const lines = text.split('\n');
+    let html = '';
+    lines.forEach(line => {
+        line = line.trim();
+        if (!line) html += '<br>';
+        else if (line.startsWith('[') && line.endsWith(']')) {
+            html += `<div class="stanza-header">${line}</div>`;
+        } else {
+            html += `<p>${line}</p>`;
+        }
+    });
+    return html || 'No lyrics found';
+}
 
     function getGenre(filename) {
     fetch(`/classify_genre/${filename}`).then(r => r.json()).then(data => {
