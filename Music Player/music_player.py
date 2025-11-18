@@ -9,7 +9,7 @@ from flask import Flask, render_template, jsonify, send_from_directory, Response
 import threading
 import time
 import numpy as np
-import difflib  # <-- Added for smart lyrics matching
+import difflib  
 
 app = Flask(__name__)
 
@@ -60,7 +60,7 @@ preferred_cam_idx = None
 logging.basicConfig(filename='gesture_log.txt', level=logging.INFO,
                     format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
-# === SMART LYRICS MATCHING ===
+# LYRICS MATCHING 
 def find_lyrics_file(song_filename):
     if not os.path.exists(lyrics_dir):
         return None
@@ -90,7 +90,7 @@ def find_lyrics_file(song_filename):
 
     return None
 
-# === CAMERA & GESTURES (unchanged) ===
+# CAMERA & GESTURE
 def find_usb_camera():
     for idx in range(1, 10):
         backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY

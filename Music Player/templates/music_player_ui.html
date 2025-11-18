@@ -984,7 +984,7 @@ document.getElementById('cvBtn').addEventListener('click', () => {
     if (isLyricsActive) {
         if (playlist.length > 0) {
             const trackIndex = shuffle ? shuffleIndices[currentTrack] : currentTrack;
-            const songFilename = playlist[trackIndex];  // Full .mp3 name
+            const songFilename = playlist[trackIndex]; 
 
             fetch(`/lyrics/${encodeURIComponent(songFilename)}`)
                 .then(response => {
