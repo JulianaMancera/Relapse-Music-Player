@@ -9,7 +9,8 @@ from flask import Flask, render_template, jsonify, send_from_directory, Response
 import threading
 import time
 import numpy as np
-import difflib  
+import difflib
+from mutagen import File
 
 app = Flask(__name__)
 
@@ -18,15 +19,27 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 music_dir = os.path.join(script_dir, "music")
 lyrics_dir = os.path.join(script_dir, "lyrics")
 static_dir = os.path.join(script_dir, "static")
+song_durations = {}
 
 # Dynamically load songs
 def load_playlist():
     if not os.path.exists(music_dir):
-        logging.warning(f"{datetime.now()}: 'music' folder not found at {music_dir}")
         return []
     songs = [f for f in os.listdir(music_dir) if f.lower().endswith(('.mp3', '.wav', '.ogg', '.flac', '.m4a'))]
     songs.sort(key=str.lower)
-    logging.info(f"{datetime.now()}: Loaded {len(songs)} songs")
+    
+    # Pre-calculate durations
+    global song_durations
+    song_durations = {}
+    for song in songs:
+        try:
+            file_path = os.path.join(music_dir, song)
+            audio_file = File(file_path)
+            if audio_file:
+                song_durations[song] = audio_file.info.length
+        except:
+            song_durations[song] = 0
+    
     return songs
 
 playlist = load_playlist()
@@ -275,11 +288,20 @@ def control(action):
 
 @app.route('/api/state')
 def get_state():
+    position = 0
+    if pygame.mixer.music.get_busy():
+        position = pygame.mixer.music.get_pos() / 1000.0
+    
+    current_song_name = playlist[current_index] if playlist and current_index < len(playlist) else None
+    duration = song_durations.get(current_song_name, 0) if current_song_name else 0
+
     return jsonify({
         'current_index': current_index,
         'is_playing': pygame.mixer.music.get_busy(),
         'is_camera_active': is_camera_active,
-        'volume': round(current_volume, 2)
+        'volume': round(current_volume, 2),
+        'position': round(position, 1),
+        'duration': round(duration, 1)
     })
 
 @app.route('/control/volume/<float:volume>', methods=['POST'])
@@ -290,6 +312,26 @@ def set_volume(volume):
         pygame.mixer.music.set_volume(current_volume)
         return jsonify({'status': 'success', 'volume': round(current_volume, 2)})
     return jsonify({'status': 'error'})
+
+@app.route('/control/play_index/<int:index>', methods=['POST'])
+def play_index(index):
+    global current_index, current_position
+    if 0 <= index < len(playlist):
+        current_index = index
+        current_position = 0
+        play_song()
+        return jsonify({'status': 'success', 'current_index': current_index})
+    return jsonify({'status': 'error'})
+
+@app.route('/control/seek/<float:seconds>', methods=['POST'])
+def seek(seconds):
+    global current_position
+    if playlist and current_index < len(playlist):
+        current_position = seconds * 1000 
+        if pygame.mixer.music.get_busy():
+            pygame.mixer.music.stop()
+        play_song()
+    return jsonify({'status': 'success'})
 
 if __name__ == "__main__":
     import atexit

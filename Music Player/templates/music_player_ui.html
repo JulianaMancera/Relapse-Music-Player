@@ -267,15 +267,9 @@
         }
         
         #progress {
-            width: 100%;
-            height: 8px;
-            background: rgba(163, 228, 215, 0.2);
-            border-radius: 4px;
-            margin: 20px 0;
-            cursor: pointer;
-            appearance: none;
-            outline: none;
-        }
+        cursor: pointer;
+        background: linear-gradient(to right, #a3e4d7 0%, #a3e4d7 var(--progress-percent, 0%), rgba(163, 228, 215, 0.2) var(--progress-percent, 0%), rgba(163, 228, 215, 0.2) 100%);
+    }
         
         #progress::-webkit-slider-thumb {
             appearance: none;
@@ -630,7 +624,7 @@
                 </button>
             </div>
             
-            <input type="range" id="progress" min="0" max="100" value="0" disabled>
+            <input type="range" id="progress" min="0" max="1000" value="0">
             
             <div class="volume-container">
                 <i class="fas fa-volume-down volume-icon" onclick="muteToggle()"></i>
@@ -670,6 +664,7 @@
     let isLyricsActive = false;
     let availableCameras = [];
     let currentCamera = -1;
+    let songDuration = 0;
 
     const vinyl = document.getElementById('vinylDisc');
     const progress = document.getElementById('progress');
@@ -695,7 +690,7 @@
         const response = await fetch('/api/playlist');
         playlist = await response.json();
         console.log("Loaded playlist:", playlist);
-        updatePlaylistUI();  // Your function to display songs
+        updatePlaylistUI(); 
     } catch (err) {
         console.error("Failed to load playlist:", err);
     }
@@ -726,24 +721,25 @@ window.onload = loadPlaylist;
         }
     }
 
-    function updateSongList() {
-        songList.innerHTML = '';
-        filteredPlaylist.forEach((song, displayIndex) => {
-            const songItem = document.createElement('div');
-            songItem.textContent = song.replace('.mp3', '');
-            songItem.addEventListener('click', () => {
-                const originalIndex = playlist.indexOf(song);
-                currentTrack = shuffle ? shuffleIndices.indexOf(originalIndex) : originalIndex;
-                fetch('/control/next', { method: 'POST' })
-                    .then(() => syncState())
-                    .catch(e => console.error("Song selection failed:", e));
-            });
-            if (playlist[shuffle ? shuffleIndices[currentTrack] : currentTrack] === song) {
-                songItem.classList.add('active');
+        function updateSongList() {
+                songList.innerHTML = '';
+                filteredPlaylist.forEach((song, displayIndex) => {
+                    const realIndex = playlist.indexOf(song);
+                    const songItem = document.createElement('div');
+                    songItem.textContent = song.replace('.mp3', '').replace('.wav', '');
+                        
+                    songItem.addEventListener('click', () => {
+                            fetch(`/control/play_index/${realIndex}`, { method: 'POST' })
+                                .then(() => syncState());
+                        });
+                        // Highlight current song
+                        const currentRealIndex = shuffle ? shuffleIndices[currentTrack] : currentTrack;
+                        if (realIndex === currentRealIndex) {
+                            songItem.classList.add('active');
+                        }
+                        songList.appendChild(songItem);
+                    });
             }
-            songList.appendChild(songItem);
-        });
-    }
 
     function toggleSidebar() {
         sidebarVisible = !sidebarVisible;
@@ -890,6 +886,29 @@ document.getElementById('cvBtn').addEventListener('click', () => {
             .catch(e => console.error("Previous track failed:", e));
     }
 
+    function updateProgress() {
+    fetch('/api/state')
+        .then(r => r.json())
+        .then(data => {
+            if (data.duration) {
+                songDuration = data.duration; 
+                const current = data.position || 0;
+                const percent = songDuration > 0 ? (current / songDuration) * 1000 : 0;
+                progress.value = percent;
+                progress.style.setProperty('--progress-percent', (percent / 10) + '%');
+            }
+        });
+}
+    progress.addEventListener('input', () => {
+            if (songDuration > 0) {
+                const seekTo = (progress.value / 1000) * songDuration;
+                fetch(`/control/seek/${seekTo.toFixed(1)}`, { method: 'POST' });
+            }
+        });
+
+        setInterval(updateProgress, 500);
+        updateProgress();
+
     function toggleShuffle() {
         shuffle = !shuffle;
         shuffleBtn.classList.toggle('active', shuffle);
@@ -944,36 +963,42 @@ document.getElementById('cvBtn').addEventListener('click', () => {
     });
 
     function syncState() {
-        fetch('/api/state')
-            .then(response => response.json())
-            .then(data => {
-                if (data.current_index !== undefined) {
-                    currentTrack = data.current_index;
-                }
-                if (data.is_playing !== undefined) {
+            fetch('/api/state')
+                .then(r => r.json())
+                .then(data => {
+                    currentTrack = data.current_index || 0;
                     isPlaying = data.is_playing;
+                    songDuration = data.duration || 0;
+
+                    // Update play/pause icon and vinyl spin
                     vinyl.classList.toggle('spinning', isPlaying);
                     playPauseIcon.classList.toggle('fa-play', !isPlaying);
                     playPauseIcon.classList.toggle('fa-pause', isPlaying);
-                    updateTrackDisplay();
-                }
-                if (data.is_camera_active !== undefined) {
-                    cvEnabled = data.is_camera_active;
-                    cvBtn.classList.toggle('active', cvEnabled);
-                    appContainer.classList.toggle('cv-enabled', cvEnabled);
-                    webcamContainer.classList.toggle('active', cvEnabled);
-                    webcamFeed.src = cvEnabled ? '/video_feed?' + new Date().getTime() : '';
-                    cvBtn.title = cvEnabled ? 'Disable Computer Vision' : 'Enable Computer Vision';
-                }
-                if (data.volume !== undefined) {
-                    volume.value = data.volume;
-                    volumeDisplay.textContent = `${Math.round(data.volume * 100)}%`;
-                    previousVolume = data.volume > 0 ? data.volume : previousVolume;
-                }
-                updateSongList();
-            })
-            .catch(error => console.error("Sync failed:", error));
-    }
+
+                    // Update song title
+                    if (playlist.length > 0) {
+                        const trackIdx = shuffle ? shuffleIndices[currentTrack] : currentTrack;
+                        const name = playlist[trackIdx]?.replace('.mp3', '') || "Unknown";
+                        songTitle.textContent = isPlaying ? `Playing: ${name}` : `Paused: ${name}`;
+                    }
+
+                    // Update progress bar
+                    const position = data.position || 0;
+                    if (songDuration > 0) {
+                        const percent = (position / songDuration) * 1000;
+                        progress.value = percent;
+                        progress.style.setProperty('--progress-percent', (percent / 10) + '%');
+                    }
+
+                    // Update volume
+                    if (data.volume !== undefined) {
+                        volume.value = data.volume;
+                        volumeDisplay.textContent = `${Math.round(data.volume * 100)}%`;
+                    }
+
+                    updateSongList();
+                });
+        }
 
     // Initial sync to set correct state
     syncState();
