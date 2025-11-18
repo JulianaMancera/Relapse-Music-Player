@@ -267,28 +267,38 @@
         }
         
         #progress {
+        width: 100%;
+        height: 8px;
+        background: rgba(163, 228, 215, 0.2);
+        border-radius: 4px;
+        margin: 20px 0;
         cursor: pointer;
-        background: linear-gradient(to right, #a3e4d7 0%, #a3e4d7 var(--progress-percent, 0%), rgba(163, 228, 215, 0.2) var(--progress-percent, 0%), rgba(163, 228, 215, 0.2) 100%);
+        appearance: none;
+        outline: none;
+        background-image: linear-gradient(to right, #a3e4d7 0%, #a3e4d7 var(--progress-percent, 0%), transparent var(--progress-percent, 0%));
+        background-size: 100% 100%;
+        background-repeat: no-repeat;
     }
-        
-        #progress::-webkit-slider-thumb {
-            appearance: none;
-            width: 18px;
-            height: 18px;
-            background: #a3e4d7;
-            border-radius: 50%;
-            cursor: pointer;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-        }
-        
-        #progress::-moz-range-thumb {
-            width: 18px;
-            height: 18px;
-            background: #a3e4d7;
-            border-radius: 50%;
-            cursor: pointer;
-            border: none;
-        }
+
+    #progress::-webkit-slider-thumb {
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        background: #a3e4d7;
+        border-radius: 50%;
+        cursor: pointer;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    }
+
+    #progress::-moz-range-thumb {
+        width: 18px;
+        height: 18px;
+        background: #a3e4d7;
+        border-radius: 50%;
+        cursor: pointer;
+        border: none;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    }
         
         .volume-container {
             display: flex;
@@ -624,7 +634,7 @@
                 </button>
             </div>
             
-            <input type="range" id="progress" min="0" max="1000" value="0">
+            <input type="range" id="progress" min="0" max="1000" value="0" step="1">
             
             <div class="volume-container">
                 <i class="fas fa-volume-down volume-icon" onclick="muteToggle()"></i>
@@ -886,23 +896,31 @@ document.getElementById('cvBtn').addEventListener('click', () => {
             .catch(e => console.error("Previous track failed:", e));
     }
 
-    function updateProgress() {
-    fetch('/api/state')
-        .then(r => r.json())
-        .then(data => {
-            if (data.duration) {
-                songDuration = data.duration; 
-                const current = data.position || 0;
-                const percent = songDuration > 0 ? (current / songDuration) * 1000 : 0;
-                progress.value = percent;
-                progress.style.setProperty('--progress-percent', (percent / 10) + '%');
-            }
-        });
-}
-    progress.addEventListener('input', () => {
+        function updateProgress() {
+            fetch('/api/state')
+                .then(r => r.json())
+                .then(data => {
+                    songDuration = data.duration || 0;
+                    const position = data.position || 0;
+                    if (songDuration > 0) {
+                        const percent = (position / songDuration) * 1000;
+                        progress.value = percent;
+                        progress.style.setProperty('--progress-percent', (percent / 10) + '%');
+                    } else {
+                        progress.value = 0;
+                        progress.style.setProperty('--progress-percent', '0%');
+                    }
+                })
+                .catch(() => {});
+        }
+        
+        progress.addEventListener('input', function() {
             if (songDuration > 0) {
-                const seekTo = (progress.value / 1000) * songDuration;
-                fetch(`/control/seek/${seekTo.toFixed(1)}`, { method: 'POST' });
+                const seekTo = (this.value / 1000) * songDuration;
+                fetch(`/control/seek/${seekTo.toFixed(1)}`, { method: 'POST' })
+                    .then(() => {
+                        progress.style.setProperty('--progress-percent', (this.value / 10) + '%');
+                    });
             }
         });
 

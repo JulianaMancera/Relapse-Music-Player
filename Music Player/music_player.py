@@ -221,8 +221,8 @@ def play_song():
     current_song = os.path.join(music_dir, playlist[current_index])
     pygame.mixer.music.load(current_song)
     pygame.mixer.music.set_volume(current_volume)
-    pygame.mixer.music.play(start=current_position / 1000.0 if current_position > 0 else 0)
-    current_position = 0
+    pygame.mixer.music.play(start=current_position / 1000.0) 
+    current_position = 0 
 
 def next_song():
     global current_index, current_position
@@ -326,11 +326,18 @@ def play_index(index):
 @app.route('/control/seek/<float:seconds>', methods=['POST'])
 def seek(seconds):
     global current_position
-    if playlist and current_index < len(playlist):
-        current_position = seconds * 1000 
-        if pygame.mixer.music.get_busy():
-            pygame.mixer.music.stop()
-        play_song()
+    if not playlist or current_index >= len(playlist):
+        return jsonify({'status': 'error'})
+
+    current_position = max(0, seconds * 1000)  
+
+    was_playing = pygame.mixer.music.get_busy()
+    pygame.mixer.music.stop()  
+    play_song() 
+
+    if was_playing:
+        pygame.mixer.music.unpause()
+
     return jsonify({'status': 'success'})
 
 if __name__ == "__main__":
