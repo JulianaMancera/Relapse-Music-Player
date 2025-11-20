@@ -65,10 +65,19 @@ current_volume = 0.5
 # MediaPipe
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
-hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7, min_tracking_confidence=0.7)
+hands = mp_hands.Hands(
+    static_image_mode=False,
+    max_num_hands=2,
+    min_detection_confidence=0.75,
+    min_tracking_confidence=0.8
+)
 
 cap = None
 preferred_cam_idx = None
+
+def log_gesture(gesture):
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    print(f"[{timestamp}] GESTURE → {gesture.upper()}")
 
 logging.basicConfig(filename='gesture_log.txt', level=logging.INFO,
                     format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
@@ -132,39 +141,62 @@ def open_camera():
 
 def recognize_gesture(landmarks):
     global last_gesture_time, current_gesture
-    current_time = time.time()
-    if current_time - last_gesture_time < gesture_cooldown:
+    now = time.time()
+    if now - last_gesture_time < gesture_cooldown:
         return None
 
-    wrist = landmarks[0]
-    index_tip = landmarks[8]
-    middle_tip = landmarks[12]
-    thumb_tip = landmarks[4]
+    def dist(a, b):
+        return ((landmarks[a].x - landmarks[b].x)**2 + (landmarks[a].y - landmarks[b].y)**2)**0.5
 
-    # Play, Pause, Next, Prev, Volume Up/Down (same as before)
-    if all(l.y < landmarks[i].y - 0.03 for i, l in [(6, landmarks[8]), (10, landmarks[12]), (14, landmarks[16]), (18, landmarks[20])]):
-        last_gesture_time = current_time
+    wrist = landmarks[0]
+    tips = [landmarks[i] for i in [4, 8, 12, 16, 20]]   # thumb, index, middle, ring, pinky
+    pips = [landmarks[i] for i in [3, 6, 10, 14, 18]]
+
+    # Count extended fingers (tip significantly above PIP)
+    extended = sum(1 for tip, pip in zip(tips, pips) if tip.y < pip.y - 0.035)
+
+    # 1. Open Palm → PLAY
+    if extended == 5:
+        last_gesture_time = now
         current_gesture = "play"
+        log_gesture("play")
         return "play"
-    if all(l.y > landmarks[i].y + 0.03 for i, l in [(6, landmarks[8]), (10, landmarks[12]), (14, landmarks[16]), (18, landmarks[20])]):
-        last_gesture_time = current_time
+
+    # 2. Fist → PAUSE
+    if extended <= 1:
+        last_gesture_time = now
         current_gesture = "pause"
+        log_gesture("pause")
         return "pause"
-    if index_tip.x < wrist.x - 0.08 and middle_tip.x < wrist.x - 0.08:
-        last_gesture_time = current_time
+
+    # 3. Two fingers left → PREVIOUS
+    if extended == 2 and tips[1].x < wrist.x - 0.10 and tips[2].x < wrist.x - 0.10:
+        last_gesture_time = now
         current_gesture = "previous"
+        log_gesture("previous")
         return "previous"
-    if index_tip.x > wrist.x + 0.08 and middle_tip.x > wrist.x + 0.08:
-        last_gesture_time = current_time
+
+    # 4. Two fingers right → NEXT
+    if extended == 2 and tips[1].x > wrist.x + 0.10 and tips[2].x > wrist.x + 0.10:
+        last_gesture_time = now
         current_gesture = "next"
+        log_gesture("next")
         return "next"
-    if thumb_tip.y < wrist.y - 0.06 and all(l.y > landmarks[i].y + 0.04 for i, l in [(6, landmarks[8]), (10, landmarks[12]), (14, landmarks[16]), (18, landmarks[20])]):
-        last_gesture_time = current_time
+
+    # 5. Thumbs Up → VOLUME UP
+    if (extended == 1 and tips[0].y < landmarks[2].y - 0.06 and
+        all(tip.y > pip.y + 0.03 for tip, pip in zip(tips[1:], pips[1:]))):
+        last_gesture_time = now
         current_gesture = "volume_up"
+        log_gesture("volume up")
         return "volume_up"
-    if thumb_tip.y > wrist.y + 0.06 and all(l.y > landmarks[i].y + 0.04 for i, l in [(6, landmarks[8]), (10, landmarks[12]), (14, landmarks[16]), (18, landmarks[20])]):
-        last_gesture_time = current_time
+
+    # 6. Thumbs Down → VOLUME DOWN
+    if (extended == 1 and tips[0].y > landmarks[2].y + 0.06 and
+        all(tip.y > pip.y + 0.03 for tip, pip in zip(tips[1:], pips[1:]))):
+        last_gesture_time = now
         current_gesture = "volume_down"
+        log_gesture("volume down")
         return "volume_down"
 
     current_gesture = None
