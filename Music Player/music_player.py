@@ -219,7 +219,7 @@ def generate_video_feed():
         if results.multi_hand_landmarks:
             hand = max(results.multi_hand_landmarks, key=lambda h: h.landmark[0].z) 
             mp_drawing.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS,
-                                    mp_drawing.DrawingSpec(color=(0,255,100), thickness=2),
+                                    mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2),
                                     mp_drawing.DrawingSpec(color=(255,255,255), thickness=2))
             gesture = recognize_gesture(hand.landmark)
             if gesture:
