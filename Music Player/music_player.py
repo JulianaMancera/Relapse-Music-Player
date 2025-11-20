@@ -44,25 +44,19 @@ def load_playlist():
 
 playlist = load_playlist()
 
-# Pygame init
-try:
-    pygame.mixer.init()
-    pygame.mixer.music.set_volume(0.5)
-except pygame.error as e:
-    logging.error(f"Failed to init pygame: {e}")
-    raise
+# Pygame
+pygame.mixer.init()
+pygame.mixer.music.set_volume(0.5)
 
-current_song = None
 current_index = 0
 current_position = 0
-is_playing = False
 is_camera_active = False
 last_gesture_time = 0
-gesture_cooldown = 0.7
+gesture_cooldown = 0.9
 current_gesture = None
 current_volume = 0.5
 
-# MediaPipe
+# MediaPipe Hands
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 hands = mp_hands.Hands(
@@ -73,7 +67,6 @@ hands = mp_hands.Hands(
 )
 
 cap = None
-preferred_cam_idx = None
 
 def log_gesture(gesture):
     timestamp = datetime.now().strftime("%H:%M:%S")
@@ -123,21 +116,26 @@ def find_usb_camera():
         temp.release()
     return None
 
+# Camera
 def open_camera():
-    global cap, preferred_cam_idx
+    global cap
     if cap and cap.isOpened():
         cap.release()
-    usb_idx = find_usb_camera()
-    cam_idx = usb_idx if usb_idx is not None else 0
-    backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
-    cap = cv2.VideoCapture(cam_idx, backend)
-    if not cap.isOpened():
-        return False
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
-    cap.set(cv2.CAP_PROP_FPS, 30)
-    preferred_cam_idx = cam_idx
-    return True
+    idx = 0
+    for i in range(10):
+        backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
+        temp = cv2.VideoCapture(i, backend)
+        if temp.isOpened():
+            idx = i
+            temp.release()
+            break
+    cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY)
+    if cap.isOpened():
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+        cap.set(cv2.CAP_PROP_FPS, 30)
+        return True
+    return False
 
 def recognize_gesture(landmarks):
     global last_gesture_time, current_gesture
@@ -145,63 +143,67 @@ def recognize_gesture(landmarks):
     if now - last_gesture_time < gesture_cooldown:
         return None
 
-    def dist(a, b):
-        return ((landmarks[a].x - landmarks[b].x)**2 + (landmarks[a].y - landmarks[b].y)**2)**0.5
+    tip = lambda i: landmarks[i]
+    pip = lambda i: landmarks[[3,6,10,14,18][i-1]] if i > 0 else None
 
-    wrist = landmarks[0]
-    tips = [landmarks[i] for i in [4, 8, 12, 16, 20]]   # thumb, index, middle, ring, pinky
-    pips = [landmarks[i] for i in [3, 6, 10, 14, 18]]
+    wrist = tip(0)
+    index_tip = tip(8)
+    index_pip = tip(6)
+    middle_tip = tip(12)
 
-    # Count extended fingers (tip significantly above PIP)
-    extended = sum(1 for tip, pip in zip(tips, pips) if tip.y < pip.y - 0.035)
+    # Count extended fingers (tip above PIP)
+    extended = sum(1 for i in [8,12,16,20] if tip(i).y < tip(i-2).y - 0.04)
 
-    # 1. Open Palm → PLAY
-    if extended == 5:
-        last_gesture_time = now
-        current_gesture = "play"
-        log_gesture("play")
-        return "play"
-
-    # 2. Fist → PAUSE
-    if extended <= 1:
-        last_gesture_time = now
-        current_gesture = "pause"
-        log_gesture("pause")
-        return "pause"
-
-    # 3. Two fingers left → PREVIOUS
-    if extended == 2 and tips[1].x < wrist.x - 0.10 and tips[2].x < wrist.x - 0.10:
-        last_gesture_time = now
-        current_gesture = "previous"
-        log_gesture("previous")
-        return "previous"
-
-    # 4. Two fingers right → NEXT
-    if extended == 2 and tips[1].x > wrist.x + 0.10 and tips[2].x > wrist.x + 0.10:
-        last_gesture_time = now
-        current_gesture = "next"
-        log_gesture("next")
-        return "next"
-
-    # 5. Thumbs Up → VOLUME UP
-    if (extended == 1 and tips[0].y < landmarks[2].y - 0.06 and
-        all(tip.y > pip.y + 0.03 for tip, pip in zip(tips[1:], pips[1:]))):
+    # === 1. ONE FINGER UP → VOLUME UP ===
+    if (extended == 1 and 
+        index_tip.y < index_pip.y - 0.08 and  # index clearly pointing up
+        all(tip(i).y > tip(i-2).y + 0.03 for i in [12,16,20])):  # others curled
         last_gesture_time = now
         current_gesture = "volume_up"
         log_gesture("volume up")
         return "volume_up"
 
-    # 6. Thumbs Down → VOLUME DOWN
-    if (extended == 1 and tips[0].y > landmarks[2].y + 0.06 and
-        all(tip.y > pip.y + 0.03 for tip, pip in zip(tips[1:], pips[1:]))):
+    # === 2. ONE FINGER DOWN → VOLUME DOWN ===
+    if (extended == 1 and 
+        index_tip.y > index_pip.y + 0.08 and  # index pointing down
+        all(tip(i).y > tip(i-2).y + 0.03 for i in [12,16,20])):
         last_gesture_time = now
         current_gesture = "volume_down"
         log_gesture("volume down")
         return "volume_down"
 
+    # === 3. TWO FINGERS SWIPE RIGHT (even at 45°) → NEXT ===
+    if extended == 2 and middle_tip.x > wrist.x + 0.07:  # relaxed horizontal/45° right
+        last_gesture_time = now
+        current_gesture = "next"
+        log_gesture("next")
+        return "next"
+
+    # === 4. TWO FINGERS SWIPE LEFT (even at 45°) → PREVIOUS ===
+    if extended == 2 and middle_tip.x < wrist.x - 0.07:  # relaxed horizontal/45° left
+        last_gesture_time = now
+        current_gesture = "previous"
+        log_gesture("previous")
+        return "previous"
+
+    # === 5. OPEN PALM → PLAY ===
+    if extended >= 4:
+        last_gesture_time = now
+        current_gesture = "play"
+        log_gesture("play")
+        return "play"
+
+    # === 6. FIST → PAUSE ===
+    if extended <= 1 and index_tip.y > index_pip.y:
+        last_gesture_time = now
+        current_gesture = "pause"
+        log_gesture("pause")
+        return "pause"
+
     current_gesture = None
     return None
 
+# Video feed
 def generate_video_feed():
     global is_camera_active, cap, current_gesture
     while is_camera_active:
@@ -209,26 +211,29 @@ def generate_video_feed():
             break
         success, frame = cap.read()
         if not success:
-            time.sleep(0.1)
             continue
         frame = cv2.flip(frame, 1)
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = hands.process(frame_rgb)
-        gesture = None
-        if results.multi_hand_landmarks:
-            for hand in results.multi_hand_landmarks:
-                mp_drawing.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS)
-                gesture = recognize_gesture(hand.landmark)
-                if gesture:
-                    handle_gesture(gesture)
-        if current_gesture:
-            cv2.putText(frame, f"Gesture: {current_gesture}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        _, buffer = cv2.imencode('.jpg', frame)
-        yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-    blank = np.zeros((240, 320, 3), np.uint8)
-    _, buf = cv2.imencode('.jpg', blank)
-    yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = hands.process(rgb)
 
+        if results.multi_hand_landmarks:
+            hand = max(results.multi_hand_landmarks, key=lambda h: h.landmark[0].z) 
+            mp_drawing.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS,
+                                    mp_drawing.DrawingSpec(color=(0,255,100), thickness=2),
+                                    mp_drawing.DrawingSpec(color=(255,255,255), thickness=2))
+            gesture = recognize_gesture(hand.landmark)
+            if gesture:
+                handle_gesture(gesture)
+
+        if current_gesture:
+            txt = current_gesture.replace("_", " ").upper()
+            cv2.putText(frame, txt, (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0,0,0), 4)
+            cv2.putText(frame, txt, (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0,255,100), 3)
+
+        _, buf = cv2.imencode('.jpg', frame)
+        yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
+
+# Gesture handler
 def handle_gesture(gesture):
     global current_volume
     if gesture == "play" and not pygame.mixer.music.get_busy():
@@ -240,21 +245,20 @@ def handle_gesture(gesture):
     elif gesture == "previous":
         previous_song()
     elif gesture == "volume_up":
-        current_volume = min(1.0, current_volume + 0.02)
+        current_volume = min(1.0, current_volume + 0.06)
         pygame.mixer.music.set_volume(current_volume)
     elif gesture == "volume_down":
-        current_volume = max(0.0, current_volume - 0.02)
+        current_volume = max(0.0, current_volume - 0.06)
         pygame.mixer.music.set_volume(current_volume)
 
 def play_song():
-    global current_song, current_position
-    if not playlist or current_index >= len(playlist):
-        return
-    current_song = os.path.join(music_dir, playlist[current_index])
-    pygame.mixer.music.load(current_song)
+    global current_index, current_position
+    if not playlist: return
+    path = os.path.join(music_dir, playlist[current_index])
+    pygame.mixer.music.load(path)
     pygame.mixer.music.set_volume(current_volume)
-    pygame.mixer.music.play(start=current_position / 1000.0) 
-    current_position = 0 
+    pygame.mixer.music.play(start=current_position/1000)
+    current_position = 0
 
 def next_song():
     global current_index, current_position
