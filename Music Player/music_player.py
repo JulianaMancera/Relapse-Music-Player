@@ -136,7 +136,6 @@ def open_camera():
         cap.set(cv2.CAP_PROP_FPS, 30)
         return True
     return False
-
 def recognize_gesture(landmarks):
     global last_gesture_time, current_gesture
     now = time.time()
@@ -144,57 +143,55 @@ def recognize_gesture(landmarks):
         return None
 
     tip = lambda i: landmarks[i]
-    pip = lambda i: landmarks[[3,6,10,14,18][i-1]] if i > 0 else None
 
     wrist = tip(0)
-    index_tip = tip(8)
-    index_pip = tip(6)
-    middle_tip = tip(12)
 
-    # Count extended fingers (tip above PIP)
-    extended = sum(1 for i in [8,12,16,20] if tip(i).y < tip(i-2).y - 0.04)
+    # Count how many of the four fingers (index to pinky) have tip clearly above their PIP joint
+    extended = sum(1 for i in [8, 12, 16, 20] if tip(i).y < tip(i-2).y - 0.04)
 
-    # === 1. ONE FINGER UP → VOLUME UP ===
-    if (extended == 1 and 
-        index_tip.y < index_pip.y - 0.08 and  # index clearly pointing up
-        all(tip(i).y > tip(i-2).y + 0.03 for i in [12,16,20])):  # others curled
+    # Individual finger states (True = clearly extended upward)
+    index_extended   = tip(8).y  < tip(6).y  - 0.06
+    middle_extended  = tip(12).y < tip(10).y - 0.06
+    ring_extended    = tip(16).y < tip(14).y - 0.06
+    pinky_extended   = tip(20).y < tip(18).y - 0.06
+
+    # === 1. ONE FINGER UP (only index) → VOLUME UP ===
+    if (index_extended and not middle_extended and not ring_extended and not pinky_extended):
         last_gesture_time = now
         current_gesture = "volume_up"
         log_gesture("volume up")
         return "volume_up"
 
-    # === 2. ONE FINGER DOWN → VOLUME DOWN ===
-    if (extended == 1 and 
-        index_tip.y > index_pip.y + 0.08 and  # index pointing down
-        all(tip(i).y > tip(i-2).y + 0.03 for i in [12,16,20])):
+    # === 2. THREE FINGERS UP (index + middle + ring, pinky down) → VOLUME DOWN ===
+    if (index_extended and middle_extended and ring_extended and not pinky_extended):
         last_gesture_time = now
         current_gesture = "volume_down"
         log_gesture("volume down")
         return "volume_down"
 
-    # === 3. TWO FINGERS SWIPE RIGHT (even at 45°) → NEXT ===
-    if extended == 2 and middle_tip.x > wrist.x + 0.07:  # relaxed horizontal/45° right
+    # === 3. TWO FINGERS SWIPE RIGHT → NEXT ===
+    if extended == 2 and tip(12).x > wrist.x + 0.07:  # middle finger clearly to the right
         last_gesture_time = now
         current_gesture = "next"
         log_gesture("next")
         return "next"
 
-    # === 4. TWO FINGERS SWIPE LEFT (even at 45°) → PREVIOUS ===
-    if extended == 2 and middle_tip.x < wrist.x - 0.07:  # relaxed horizontal/45° left
+    # === 4. TWO FINGERS SWIPE LEFT → PREVIOUS ===
+    if extended == 2 and tip(12).x < wrist.x - 0.07:
         last_gesture_time = now
         current_gesture = "previous"
         log_gesture("previous")
         return "previous"
 
-    # === 5. OPEN PALM → PLAY ===
+    # === 5. OPEN PALM (4+ fingers) → PLAY ===
     if extended >= 4:
         last_gesture_time = now
         current_gesture = "play"
         log_gesture("play")
         return "play"
 
-    # === 6. FIST → PAUSE ===
-    if extended <= 1 and index_tip.y > index_pip.y:
+    # === 6. FIST (0 or 1 finger, but not the single index-up we already caught) → PAUSE ===
+    if extended <= 1:
         last_gesture_time = now
         current_gesture = "pause"
         log_gesture("pause")
