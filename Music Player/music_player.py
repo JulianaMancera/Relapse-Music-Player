@@ -10,6 +10,7 @@ import threading
 import time
 import numpy as np
 import difflib
+import webbrowser
 from mutagen import File
 
 app = Flask(__name__)
@@ -136,6 +137,7 @@ def open_camera():
         cap.set(cv2.CAP_PROP_FPS, 30)
         return True
     return False
+
 def recognize_gesture(landmarks):
     global last_gesture_time, current_gesture
     now = time.time()
@@ -143,6 +145,30 @@ def recognize_gesture(landmarks):
         return None
 
     tip = lambda i: landmarks[i]
+    pip = lambda i: landmarks[i - 2 if i > 4 else i]  # safer PIP access
+
+    # Thumb state (for reference, optional)
+    thumb_extended = tip(4).x > tip(3).x + 0.05 if tip(4).x > tip(0).x else tip(4).x < tip(3).x - 0.05
+
+    # Finger extended checks (tip significantly above PIP)
+    index_extended   = tip(8).y  < tip(6).y  - 0.05
+    middle_extended  = tip(12).y < tip(10).y - 0.05
+    ring_extended    = tip(16).y < tip(14).y - 0.05
+    pinky_extended   = tip(20).y < tip(18).y - 0.05
+
+    # === 🖕 MIDDLE FINGER DETECTION (THE RICKROLL TRIGGER) ===
+    # Only middle finger up, all others clearly DOWN
+    if (middle_extended and
+        not index_extended and
+        not ring_extended and
+        not pinky_extended and
+        tip(12).y < tip(0).y - 0.1):  # middle finger clearly raised above wrist
+
+        last_gesture_time = now
+        current_gesture = "rickroll"
+        log_gesture("MIDDLE FINGER → RICKROLL ACTIVATED")
+        handle_gesture("rickroll")  # Trigger immediately
+        return "rickroll"
 
     wrist = tip(0)
 
@@ -170,7 +196,7 @@ def recognize_gesture(landmarks):
         return "volume_down"
 
     # === 3. TWO FINGERS SWIPE RIGHT → NEXT ===
-    if extended == 2 and tip(12).x > wrist.x + 0.07:  # middle finger clearly to the right
+    if extended == 2 and tip(12).x > wrist.x + 0.07: 
         last_gesture_time = now
         current_gesture = "next"
         log_gesture("next")
@@ -233,6 +259,16 @@ def generate_video_feed():
 # Gesture handler
 def handle_gesture(gesture):
     global current_volume
+
+    if gesture == "rickroll":
+        pygame.mixer.music.stop()              
+        pygame.mixer.music.set_volume(1.0)        
+        import webbrowser
+        webbrowser.open("https://youtu.be/dQw4w9WgXcQ?si=K1_RZzgnUsOeezO8")
+
+        log_gesture("RICKROLL EXECUTED — NEVER GONNA GIVE YOU UP")
+        return  
+    
     if gesture == "play" and not pygame.mixer.music.get_busy():
         play_song()
     elif gesture == "pause":
