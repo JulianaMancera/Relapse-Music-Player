@@ -163,17 +163,16 @@ def generate_video_feed():
     global is_camera_active, cap, current_gesture, rickroll_triggered
 
     while True:
-        if rickroll_triggered:
+        if rickroll_triggered and not is_camera_active:
             frame = np.zeros((240, 320, 3), np.uint8)
-            cv2.putText(frame, "RICKROLLED!", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 0, 255), 4)
-            cv2.putText(frame, "Never Gonna Give You Up", (10, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2)
-            cv2.putText(frame, "Camera Disabled", (45, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            cv2.putText(frame, "RICKROLLED!", (20, 90),  cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 0, 255), 4)
+            cv2.putText(frame, "Never Gonna Give You Up", (10, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2)
+            cv2.putText(frame, "Click to re-enable camera", (25, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
             _, buf = cv2.imencode('.jpg', frame)
             yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
-            time.sleep(3)
-            break
+            time.sleep(0.1)
+            continue
 
-        # Camera manually turned off
         if not is_camera_active:
             time.sleep(0.1)
             continue
@@ -181,7 +180,7 @@ def generate_video_feed():
         if not cap or not cap.isOpened():
             if not open_camera():
                 time.sleep(0.1)
-            continue
+                continue
 
         success, frame = cap.read()
         if not success:
@@ -199,10 +198,8 @@ def generate_video_feed():
                                     mp_drawing.DrawingSpec(color=(255,255,255), thickness=2))
             gesture = recognize_gesture(hand.landmark)
 
-        if gesture and gesture != "rickroll":
+        if gesture:
             handle_gesture(gesture)
-        elif gesture == "rickroll":
-            handle_gesture("rickroll")
 
         if current_gesture:
             txt = current_gesture.replace("_", " ").upper()
@@ -291,7 +288,7 @@ def control(action):
     if action == 'toggle_camera':
         is_camera_active = not is_camera_active
         if is_camera_active:
-            open_camera()
+            open_camera() 
         return jsonify({'status': 'success', 'is_camera_active': is_camera_active})
     return jsonify({'status': 'success'})
 
