@@ -6,7 +6,6 @@ import pygame
 import logging
 from datetime import datetime
 from flask import Flask, render_template, jsonify, send_from_directory, Response
-import threading
 import time
 import numpy as np
 import difflib
@@ -15,21 +14,19 @@ from mutagen import File
 
 app = Flask(__name__)
 
-# Set up directories
+# DIRECTORIES
 script_dir = os.path.dirname(os.path.abspath(__file__))
 music_dir = os.path.join(script_dir, "music")
 lyrics_dir = os.path.join(script_dir, "lyrics")
-static_dir = os.path.join(script_dir, "static")
 song_durations = {}
+rickroll_triggered = False
 
-# Dynamically load songs
+# PLAYLIST
 def load_playlist():
     if not os.path.exists(music_dir):
         return []
     songs = [f for f in os.listdir(music_dir) if f.lower().endswith(('.mp3', '.wav', '.ogg', '.flac', '.m4a'))]
     songs.sort(key=str.lower)
-    
-    # Pre-calculate durations
     global song_durations
     song_durations = {}
     for song in songs:
@@ -40,15 +37,15 @@ def load_playlist():
                 song_durations[song] = audio_file.info.length
         except:
             song_durations[song] = 0
-    
     return songs
 
 playlist = load_playlist()
 
-# Pygame
+# PYGAME 
 pygame.mixer.init()
 pygame.mixer.music.set_volume(0.5)
 
+# GLOBALS
 current_index = 0
 current_position = 0
 is_camera_active = False
@@ -56,8 +53,9 @@ last_gesture_time = 0
 gesture_cooldown = 0.9
 current_gesture = None
 current_volume = 0.5
+cap = None
 
-# MediaPipe Hands
+# MEDIAPIPE 
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 hands = mp_hands.Hands(
@@ -67,8 +65,6 @@ hands = mp_hands.Hands(
     min_tracking_confidence=0.8
 )
 
-cap = None
-
 def log_gesture(gesture):
     timestamp = datetime.now().strftime("%H:%M:%S")
     print(f"[{timestamp}] GESTURE → {gesture.upper()}")
@@ -76,48 +72,7 @@ def log_gesture(gesture):
 logging.basicConfig(filename='gesture_log.txt', level=logging.INFO,
                     format='%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
-# LYRICS MATCHING 
-def find_lyrics_file(song_filename):
-    if not os.path.exists(lyrics_dir):
-        return None
-
-    song_name = os.path.splitext(song_filename)[0].lower().strip()
-    lyric_files = [f for f in os.listdir(lyrics_dir) if f.lower().endswith('.txt')]
-
-    if not lyric_files:
-        return None
-
-    # Exact match
-    for f in lyric_files:
-        if os.path.splitext(f)[0].lower() == song_name:
-            return f
-
-    # Fuzzy match (80%+ similarity)
-    matches = []
-    for f in lyric_files:
-        lyric_name = os.path.splitext(f)[0].lower()
-        ratio = difflib.SequenceMatcher(None, song_name, lyric_name).ratio()
-        if ratio >= 0.8:
-            matches.append((ratio, f))
-
-    if matches:
-        matches.sort(key=lambda x: x[0], reverse=True)
-        return matches[0][1]
-
-    return None
-
-# CAMERA & GESTURE
-def find_usb_camera():
-    for idx in range(1, 10):
-        backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
-        temp = cv2.VideoCapture(idx, backend)
-        if temp.isOpened():
-            temp.release()
-            return idx
-        temp.release()
-    return None
-
-# Camera
+# CAMERA
 def open_camera():
     global cap
     if cap and cap.isOpened():
@@ -138,115 +93,116 @@ def open_camera():
         return True
     return False
 
+# GESTURE RECOGNITION
 def recognize_gesture(landmarks):
-    global last_gesture_time, current_gesture
+    global last_gesture_time, current_gesture, rickroll_triggered
     now = time.time()
     if now - last_gesture_time < gesture_cooldown:
         return None
 
     tip = lambda i: landmarks[i]
-    pip = lambda i: landmarks[i - 2 if i > 4 else i]  # safer PIP access
 
-    # Thumb state (for reference, optional)
-    thumb_extended = tip(4).x > tip(3).x + 0.05 if tip(4).x > tip(0).x else tip(4).x < tip(3).x - 0.05
-
-    # Finger extended checks (tip significantly above PIP)
+    # Finger states
     index_extended   = tip(8).y  < tip(6).y  - 0.05
     middle_extended  = tip(12).y < tip(10).y - 0.05
     ring_extended    = tip(16).y < tip(14).y - 0.05
     pinky_extended   = tip(20).y < tip(18).y - 0.05
 
-    # === 🖕 MIDDLE FINGER DETECTION (THE RICKROLL TRIGGER) ===
-    # Only middle finger up, all others clearly DOWN
-    if (middle_extended and
-        not index_extended and
-        not ring_extended and
-        not pinky_extended and
-        tip(12).y < tip(0).y - 0.1):  # middle finger clearly raised above wrist
+    if (middle_extended and not index_extended and not ring_extended and not pinky_extended
+        and tip(12).y < tip(0).y - 0.1 and not rickroll_triggered):
 
+        rickroll_triggered = True
         last_gesture_time = now
         current_gesture = "rickroll"
-        log_gesture("MIDDLE FINGER → RICKROLL ACTIVATED")
-        handle_gesture("rickroll")  # Trigger immediately
+        log_gesture("MIDDLE FINGER → RICKROLL")
         return "rickroll"
 
+    # HAND GESTURES
     wrist = tip(0)
+    extended_count = sum(1 for i in [8, 12, 16, 20] if tip(i).y < tip(i-2).y - 0.04)
 
-    # Count how many of the four fingers (index to pinky) have tip clearly above their PIP joint
-    extended = sum(1 for i in [8, 12, 16, 20] if tip(i).y < tip(i-2).y - 0.04)
+    index_ext  = tip(8).y  < tip(6).y  - 0.06
+    middle_ext = tip(12).y < tip(10).y - 0.06
+    ring_ext   = tip(16).y < tip(14).y - 0.06
+    pinky_ext  = tip(20).y < tip(18).y - 0.06
 
-    # Individual finger states (True = clearly extended upward)
-    index_extended   = tip(8).y  < tip(6).y  - 0.06
-    middle_extended  = tip(12).y < tip(10).y - 0.06
-    ring_extended    = tip(16).y < tip(14).y - 0.06
-    pinky_extended   = tip(20).y < tip(18).y - 0.06
-
-    # === 1. ONE FINGER UP (only index) → VOLUME UP ===
-    if (index_extended and not middle_extended and not ring_extended and not pinky_extended):
+    if index_ext and not middle_ext and not ring_ext and not pinky_ext:
         last_gesture_time = now
         current_gesture = "volume_up"
-        log_gesture("volume up")
         return "volume_up"
 
-    # === 2. THREE FINGERS UP (index + middle + ring, pinky down) → VOLUME DOWN ===
-    if (index_extended and middle_extended and ring_extended and not pinky_extended):
+    if index_ext and middle_ext and ring_ext and not pinky_ext:
         last_gesture_time = now
         current_gesture = "volume_down"
-        log_gesture("volume down")
         return "volume_down"
 
-    # === 3. TWO FINGERS SWIPE RIGHT → NEXT ===
-    if extended == 2 and tip(12).x > wrist.x + 0.07: 
+    if extended_count == 2 and tip(12).x > wrist.x + 0.07:
         last_gesture_time = now
         current_gesture = "next"
-        log_gesture("next")
         return "next"
 
-    # === 4. TWO FINGERS SWIPE LEFT → PREVIOUS ===
-    if extended == 2 and tip(12).x < wrist.x - 0.07:
+    if extended_count == 2 and tip(12).x < wrist.x - 0.07:
         last_gesture_time = now
         current_gesture = "previous"
-        log_gesture("previous")
         return "previous"
 
-    # === 5. OPEN PALM (4+ fingers) → PLAY ===
-    if extended >= 4:
+    if extended_count >= 4:
         last_gesture_time = now
         current_gesture = "play"
-        log_gesture("play")
         return "play"
 
-    # === 6. FIST (0 or 1 finger, but not the single index-up we already caught) → PAUSE ===
-    if extended <= 1:
+    if extended_count <= 1:
         last_gesture_time = now
         current_gesture = "pause"
-        log_gesture("pause")
         return "pause"
 
     current_gesture = None
     return None
 
-# Video feed
 def generate_video_feed():
-    global is_camera_active, cap, current_gesture
-    while is_camera_active:
-        if not cap or not cap.isOpened():
+    global is_camera_active, cap, current_gesture, rickroll_triggered
+
+    while True:
+        if rickroll_triggered:
+            frame = np.zeros((240, 320, 3), np.uint8)
+            cv2.putText(frame, "RICKROLLED!", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 0, 255), 4)
+            cv2.putText(frame, "Never Gonna Give You Up", (10, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2)
+            cv2.putText(frame, "Camera Disabled", (45, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            _, buf = cv2.imencode('.jpg', frame)
+            yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
+            time.sleep(3)
             break
+
+        # Camera manually turned off
+        if not is_camera_active:
+            time.sleep(0.1)
+            continue
+
+        if not cap or not cap.isOpened():
+            if not open_camera():
+                time.sleep(0.1)
+            continue
+
         success, frame = cap.read()
         if not success:
             continue
+
         frame = cv2.flip(frame, 1)
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = hands.process(rgb)
 
+        gesture = None
         if results.multi_hand_landmarks:
-            hand = max(results.multi_hand_landmarks, key=lambda h: h.landmark[0].z) 
+            hand = max(results.multi_hand_landmarks, key=lambda h: h.landmark[0].z)
             mp_drawing.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS,
                                     mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2),
                                     mp_drawing.DrawingSpec(color=(255,255,255), thickness=2))
             gesture = recognize_gesture(hand.landmark)
-            if gesture:
-                handle_gesture(gesture)
+
+        if gesture and gesture != "rickroll":
+            handle_gesture(gesture)
+        elif gesture == "rickroll":
+            handle_gesture("rickroll")
 
         if current_gesture:
             txt = current_gesture.replace("_", " ").upper()
@@ -256,19 +212,15 @@ def generate_video_feed():
         _, buf = cv2.imencode('.jpg', frame)
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
 
-# Gesture handler
 def handle_gesture(gesture):
     global current_volume
-
     if gesture == "rickroll":
-        pygame.mixer.music.stop()              
-        pygame.mixer.music.set_volume(1.0)        
-        import webbrowser
-        webbrowser.open("https://youtu.be/dQw4w9WgXcQ?si=K1_RZzgnUsOeezO8")
+        pygame.mixer.music.stop()
+        pygame.mixer.music.set_volume(1.0)
+        webbrowser.open("https://youtu.be/dQw4w9WgXcQ")
+        log_gesture("RICKROLL EXECUTED")
+        return
 
-        log_gesture("RICKROLL EXECUTED — NEVER GONNA GIVE YOU UP")
-        return  
-    
     if gesture == "play" and not pygame.mixer.music.get_busy():
         play_song()
     elif gesture == "pause":
@@ -305,7 +257,7 @@ def previous_song():
     current_index = (current_index - 1) % len(playlist)
     play_song()
 
-# === ROUTES ===
+# FLASK ROUTES
 @app.route('/')
 def landing():
     return render_template('index.html')
@@ -335,34 +287,19 @@ def video_feed():
 
 @app.route('/control/<action>', methods=['POST'])
 def control(action):
-    global is_playing, is_camera_active
-    if action == 'play':
-        play_song()
-        is_playing = True
-    elif action == 'pause':
-        pygame.mixer.music.pause()
-        is_playing = False
-    elif action == 'next':
-        next_song()
-        is_playing = True
-    elif action == 'previous':
-        previous_song()
-        is_playing = True
-    elif action == 'toggle_camera':
+    global is_camera_active
+    if action == 'toggle_camera':
         is_camera_active = not is_camera_active
-        if is_camera_active and not open_camera():
-            is_camera_active = False
+        if is_camera_active:
+            open_camera()
         return jsonify({'status': 'success', 'is_camera_active': is_camera_active})
     return jsonify({'status': 'success'})
 
 @app.route('/api/state')
 def get_state():
-    position = 0
-    if pygame.mixer.music.get_busy():
-        position = pygame.mixer.music.get_pos() / 1000.0
-    
-    current_song_name = playlist[current_index] if playlist and current_index < len(playlist) else None
-    duration = song_durations.get(current_song_name, 0) if current_song_name else 0
+    position = pygame.mixer.music.get_pos() / 1000.0 if pygame.mixer.music.get_busy() else 0
+    current_song = playlist[current_index] if playlist else None
+    duration = song_durations.get(current_song, 0) if current_song else 0
 
     return jsonify({
         'current_index': current_index,
@@ -373,50 +310,41 @@ def get_state():
         'duration': round(duration, 1)
     })
 
-@app.route('/control/volume/<float:volume>', methods=['POST'])
-def set_volume(volume):
-    global current_volume
-    if 0.0 <= volume <= 1.0:
-        current_volume = volume
-        pygame.mixer.music.set_volume(current_volume)
-        return jsonify({'status': 'success', 'volume': round(current_volume, 2)})
-    return jsonify({'status': 'error'})
+@app.route('/reset_rickroll')
+def reset_rickroll():
+    global rickroll_triggered
+    rickroll_triggered = False
+    return "<h1>RICKROLL RE-ARMED</h1><p>Ready for next victim</p>"
 
-@app.route('/control/play_index/<int:index>', methods=['POST'])
-def play_index(index):
-    global current_index, current_position
-    if 0 <= index < len(playlist):
-        current_index = index
-        current_position = 0
-        play_song()
-        return jsonify({'status': 'success', 'current_index': current_index})
-    return jsonify({'status': 'error'})
-
-@app.route('/control/seek/<float:seconds>', methods=['POST'])
-def seek(seconds):
-    global current_position
-    if not playlist or current_index >= len(playlist):
-        return jsonify({'status': 'error'})
-
-    current_position = max(0, seconds * 1000)  
-
-    was_playing = pygame.mixer.music.get_busy()
-    pygame.mixer.music.stop()  
-    play_song() 
-
-    if was_playing:
-        pygame.mixer.music.unpause()
-
-    return jsonify({'status': 'success'})
+# LYRICS FINDER
+def find_lyrics_file(song_filename):
+    if not os.path.exists(lyrics_dir):
+        return None
+    song_name = os.path.splitext(song_filename)[0].lower().strip()
+    lyric_files = [f for f in os.listdir(lyrics_dir) if f.lower().endswith('.txt')]
+    if not lyric_files:
+        return None
+    for f in lyric_files:
+        if os.path.splitext(f)[0].lower() == song_name:
+            return f
+    matches = []
+    for f in lyric_files:
+        lyric_name = os.path.splitext(f)[0].lower()
+        ratio = difflib.SequenceMatcher(None, song_name, lyric_name).ratio()
+        if ratio >= 0.8:
+            matches.append((ratio, f))
+    if matches:
+        matches.sort(key=lambda x: x[0], reverse=True)
+        return matches[0][1]
+    return None
 
 if __name__ == "__main__":
     import atexit
     @atexit.register
     def cleanup():
-        global is_camera_active, cap
-        is_camera_active = False
+        global cap
         if cap and cap.isOpened():
             cap.release()
         cv2.destroyAllWindows()
         pygame.mixer.quit()
-    app.run(debug=False, use_reloader=False)
+    app.run(debug=False, use_reloader=False, threaded=True)
