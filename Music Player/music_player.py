@@ -50,18 +50,23 @@ current_index = 0
 current_position = 0
 is_camera_active = False
 last_gesture_time = 0
-gesture_cooldown = 0.9
+gesture_cooldown = 1.0
 current_gesture = None
 current_volume = 0.5
 cap = None
+
+# SEARCH
+search_buffer = ""
+last_search_time = 0
+SEARCH_TIMEOUT = 4.0
 
 # MEDIAPIPE 
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 hands = mp_hands.Hands(
     static_image_mode=False,
-    max_num_hands=2,
-    min_detection_confidence=0.75,
+    max_num_hands=1,
+    min_detection_confidence=0.8,
     min_tracking_confidence=0.8
 )
 
@@ -92,6 +97,50 @@ def open_camera():
         cap.set(cv2.CAP_PROP_FPS, 30)
         return True
     return False
+
+# ASL LETTER RECOGNITION
+def recognize_asl_letter(landmarks):
+    tip = lambda i: landmarks.landmark[i]
+    pip = lambda i: landmarks.landmark[i - 2]
+    mcp = lambda i: landmarks.landmark[i - 4]
+
+    def is_extended(finger_tip, finger_pip):
+        return finger_tip.y < finger_pip.y - 0.03
+
+    def is_curled(finger_tip, finger_pip):
+        return finger_tip.y > finger_pip.y + 0.03
+
+    def dist(a, b):
+        return ((a.x - b.x)**2 + (a.y - b.y)**2)**0.5
+
+    # Extract tips
+    t = tip(4);  i = tip(8);  m = tip(12);  r = tip(16);  p = tip(20)
+    ti = tip(6); mi = tip(10); ri = tip(14); pi = tip(18)
+
+    # VOWELS 
+    # A - Closed fist
+    if all(is_curled(tip(k), tip(k-2)) for k in [8,12,16,20]):
+        return 'A'
+
+    # E - Fingers bent over thumb (thumb inside)
+    if (t.x < tip(5).x and all(is_curled(tip(k), tip(k-2)) for k in [8,12,16,20])):
+        return 'E'
+
+    # I - Only pinky extended
+    if (is_extended(p, pi) and not is_extended(i, ti) and not is_extended(m, mi) and not is_extended(r, ri)):
+        return 'I'
+
+    # O - Round shape, fingers curved, thumb+index close
+    if (dist(t, i) < 0.12 and is_extended(i, ti) and is_extended(m, mi) and 
+        is_extended(r, ri) and is_extended(p, pi)):
+        return 'O'
+
+    # U - Index + middle extended together
+    if (is_extended(i, ti) and is_extended(m, mi) and not is_extended(r, ri) and not is_extended(p, pi) and
+        abs(i.x - m.x) < 0.08):
+        return 'U'
+    
+    return None
 
 # GESTURE RECOGNITION
 def recognize_gesture(landmarks):
@@ -241,6 +290,7 @@ def play_song():
     pygame.mixer.music.set_volume(current_volume)
     pygame.mixer.music.play(start=current_position/1000)
     current_position = 0
+    search_buffer = ""
 
 def next_song():
     global current_index, current_position
@@ -304,7 +354,8 @@ def get_state():
         'is_camera_active': is_camera_active,
         'volume': round(current_volume, 2),
         'position': round(position, 1),
-        'duration': round(duration, 1)
+        'duration': round(duration, 1),
+        'search_buffer': search_buffer
     })
 
 @app.route('/reset_rickroll')
