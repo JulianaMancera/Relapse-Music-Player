@@ -675,6 +675,8 @@
     let availableCameras = [];
     let currentCamera = -1;
     let songDuration = 0;
+    let isDraggingProgress = false;
+    let isDraggingVolume = false;
 
     const vinyl = document.getElementById('vinylDisc');
     const progress = document.getElementById('progress');
@@ -914,15 +916,24 @@ document.getElementById('cvBtn').addEventListener('click', () => {
                 .catch(() => {});
         }
         
-        progress.addEventListener('input', function() {
-            if (songDuration > 0) {
-                const seekTo = (this.value / 1000) * songDuration;
-                fetch(`/control/seek/${seekTo.toFixed(1)}`, { method: 'POST' })
-                    .then(() => {
-                        progress.style.setProperty('--progress-percent', (this.value / 10) + '%');
-                    });
-            }
-        });
+            progress.addEventListener('mousedown', () => { isDraggingProgress = true; });
+                progress.addEventListener('touchstart', () => { isDraggingProgress = true; });
+
+                progress.addEventListener('mouseup', () => { isDraggingProgress = false; });
+                progress.addEventListener('touchend', () => { isDraggingProgress = false; });
+                progress.addEventListener('mouseleave', () => { isDraggingProgress = false; });
+
+                progress.addEventListener('input', function() {
+                    if (!songDuration || songDuration === 0) return;
+
+                    const percent = this.value / 10; 
+                    progress.style.setProperty('--progress-percent', percent + '%');
+
+                    if (isDraggingProgress) {
+                        const seekTo = (this.value / 1000) * songDuration;
+                        fetch(`/control/seek/${seekTo.toFixed(1)}`, { method: 'POST' });
+                    }
+                });
 
         setInterval(updateProgress, 500);
         updateProgress();
@@ -976,9 +987,21 @@ document.getElementById('cvBtn').addEventListener('click', () => {
         }
     });
 
-    volume.addEventListener('input', () => {
-        updateVolume(parseFloat(volume.value));
-    });
+        volume.addEventListener('mousedown', () => { isDraggingVolume = true; });
+        volume.addEventListener('touchstart', () => { isDraggingVolume = true; });
+
+        volume.addEventListener('mouseup', () => { isDraggingVolume = false; });
+        volume.addEventListener('touchend', () => { isDraggingVolume = false; });
+
+        volume.addEventListener('input', () => {
+            const newVol = parseFloat(volume.value);
+            volumeDisplay.textContent = `${Math.round(newVol * 100)}%`;
+
+            // Only send to backend if user is actively dragging
+            if (isDraggingVolume) {
+                fetch(`/control/volume/${newVol}`, { method: 'POST' });
+            }
+        });
 
     function syncState() {
             fetch('/api/state')
@@ -1020,7 +1043,7 @@ document.getElementById('cvBtn').addEventListener('click', () => {
 
     // Initial sync to set correct state
     syncState();
-    setInterval(syncState, 500); // Increased frequency for faster volume updates
+    setInterval(syncState, 500); 
 
    function toggleLyrics() {
     isLyricsActive = !isLyricsActive;
