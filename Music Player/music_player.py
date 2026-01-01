@@ -101,45 +101,48 @@ def open_camera():
 # ASL LETTER RECOGNITION
 def recognize_asl_letter(landmarks):
     tip = lambda i: landmarks.landmark[i]
-    pip = lambda i: landmarks.landmark[i - 2]
-    mcp = lambda i: landmarks.landmark[i - 4]
+    pip = lambda i: landmarks.landmark[i - 2 if i > 4 else i]  # Approximate for thumb
 
-    def is_extended(finger_tip, finger_pip):
-        return finger_tip.y < finger_pip.y - 0.03
+    def is_extended(finger_tip_id):
+        return tip(finger_tip_id).y < tip(finger_tip_id - 2).y - 0.04  # Tip significantly above PIP
 
-    def is_curled(finger_tip, finger_pip):
-        return finger_tip.y > finger_pip.y + 0.03
+    def is_curled(finger_tip_id):
+        return tip(finger_tip_id).y > tip(finger_tip_id - 2).y + 0.04
 
-    def dist(a, b):
+    def dist(a_id, b_id):
+        a = tip(a_id)
+        b = tip(b_id)
         return ((a.x - b.x)**2 + (a.y - b.y)**2)**0.5
 
-    # Extract tips
-    t = tip(4);  i = tip(8);  m = tip(12);  r = tip(16);  p = tip(20)
-    ti = tip(6); mi = tip(10); ri = tip(14); pi = tip(18)
+    # Thumb tip (4), index tip (8), middle (12), ring (16), pinky (20)
 
-    # VOWELS 
-    # A - Closed fist
-    if all(is_curled(tip(k), tip(k-2)) for k in [8,12,16,20]):
+    # A: Closed fist, thumb on side (all fingers curled, thumb not inside)
+    if all(is_curled(fid) for fid in [8,12,16,20]) and tip(4).x > tip(5).x:  # Thumb outside index MCP
         return 'A'
 
-    # E - Fingers bent over thumb (thumb inside)
-    if (t.x < tip(5).x and all(is_curled(tip(k), tip(k-2)) for k in [8,12,16,20])):
+    # B: Open palm, four fingers extended together, thumb folded in
+    if (all(is_extended(fid) for fid in [8,12,16,20]) and
+        not is_extended(4) and  # Thumb curled
+        abs(tip(8).x - tip(20).x) < 0.15):  # Fingers close together
+        return 'B'
+
+    # C: Curved open hand forming C shape
+    if (dist(4, 8) > 0.15 and  # Thumb and index far apart
+        all(tip(fid).y > tip(0).y for fid in [8,12,16,20]) and  # Fingers below wrist (curved down)
+        is_extended(4) and all(is_extended(fid) for fid in [8,12,16,20])):
+        return 'C'
+
+    # D: Index extended, others curled, thumb touching middle finger side
+    if (is_extended(8) and all(is_curled(fid) for fid in [12,16,20]) and
+        dist(4, 12) < 0.1):  # Thumb close to middle tip/PIP
+        return 'D'
+
+    # E: All fingers curled over thumb, flat-ish
+    if (all(is_curled(fid) for fid in [8,12,16,20]) and
+        tip(4).y > tip(8).y and  # Thumb tucked under fingers
+        max(tip(fid).y for fid in [8,12,16,20]) - min(tip(fid).y for fid in [8,12,16,20]) < 0.08):  # Fingers at similar height
         return 'E'
 
-    # I - Only pinky extended
-    if (is_extended(p, pi) and not is_extended(i, ti) and not is_extended(m, mi) and not is_extended(r, ri)):
-        return 'I'
-
-    # O - Round shape, fingers curved, thumb+index close
-    if (dist(t, i) < 0.12 and is_extended(i, ti) and is_extended(m, mi) and 
-        is_extended(r, ri) and is_extended(p, pi)):
-        return 'O'
-
-    # U - Index + middle extended together
-    if (is_extended(i, ti) and is_extended(m, mi) and not is_extended(r, ri) and not is_extended(p, pi) and
-        abs(i.x - m.x) < 0.08):
-        return 'U'
-    
     return None
 
 # GESTURE RECOGNITION
@@ -240,15 +243,24 @@ def generate_video_feed():
         results = hands.process(rgb)
 
         gesture = None
+        
         if results.multi_hand_landmarks:
-            hand = max(results.multi_hand_landmarks, key=lambda h: h.landmark[0].z)
+            hand = max(results.multi_hand_landmarks, key=lambda h: h.landmark[0].z)  # Pick the closest hand
             mp_drawing.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS,
-                                    mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2),
-                                    mp_drawing.DrawingSpec(color=(255,255,255), thickness=2))
+                                      mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2),
+                                      mp_drawing.DrawingSpec(color=(255,255,255), thickness=2))
+
+            asl_letter = recognize_asl_letter(hand.landmark)
             gesture = recognize_gesture(hand.landmark)
 
-        if gesture:
-            handle_gesture(gesture)
+            if asl_letter:
+                cv2.putText(frame, f"ASL: {asl_letter}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 0), 4)
+                log_gesture(f"ASL LETTER {asl_letter}")
+                # Optional: print to console too
+                print(f"Detected ASL letter: {asl_letter}")
+
+            if gesture:
+                handle_gesture(gesture)
 
         if current_gesture:
             txt = current_gesture.replace("_", " ").upper()
