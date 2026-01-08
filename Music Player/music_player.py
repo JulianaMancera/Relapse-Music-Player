@@ -58,7 +58,9 @@ cap = None
 # SEARCH
 search_buffer = ""
 last_search_time = 0
-SEARCH_TIMEOUT = 4.0
+last_letter_time = 0
+letter_cooldown = 0.7  # Reduced for faster input, adjust as needed
+SEARCH_TIMEOUT = 3.0  # Slightly reduced for quicker search
 
 # MEDIAPIPE 
 mp_hands = mp.solutions.hands
@@ -66,8 +68,8 @@ mp_drawing = mp.solutions.drawing_utils
 hands = mp_hands.Hands(
     static_image_mode=False,
     max_num_hands=1,
-    min_detection_confidence=0.8,
-    min_tracking_confidence=0.8
+    min_detection_confidence=0.7,  # Lowered slightly for better detection
+    min_tracking_confidence=0.7
 )
 
 def log_gesture(gesture):
@@ -98,63 +100,155 @@ def open_camera():
         return True
     return False
 
-# ASL LETTER RECOGNITION
+# IMPROVED ASL LETTER RECOGNITION
 def recognize_asl_letter(landmarks):
-    tip = lambda i: landmarks.landmark[i]
-    pip = lambda i: landmarks.landmark[i - 2 if i > 4 else i]  # Approximate for thumb
+    # Helper functions
+    def get_landmark(id):
+        return landmarks.landmark[id]
 
-    def is_extended(finger_tip_id):
-        return tip(finger_tip_id).y < tip(finger_tip_id - 2).y - 0.04  # Tip significantly above PIP
+    def is_finger_extended(finger_tip_id, finger_pip_id, threshold=0.05):
+        tip_y = get_landmark(finger_tip_id).y
+        pip_y = get_landmark(finger_pip_id).y
+        return tip_y < pip_y - threshold  # Assuming fingers point up, lower y is higher
 
-    def is_curled(finger_tip_id):
-        return tip(finger_tip_id).y > tip(finger_tip_id - 2).y + 0.04
+    def is_finger_curled(finger_tip_id, finger_pip_id, threshold=0.05):
+        tip_y = get_landmark(finger_tip_id).y
+        pip_y = get_landmark(finger_pip_id).y
+        return tip_y > pip_y + threshold
 
-    def dist(a_id, b_id):
-        a = tip(a_id)
-        b = tip(b_id)
-        return ((a.x - b.x)**2 + (a.y - b.y)**2)**0.5
+    def dist(id1, id2):
+        p1 = get_landmark(id1)
+        p2 = get_landmark(id2)
+        return np.sqrt((p1.x - p2.x)**2 + (p1.y - p2.y)**2 + (p1.z - p2.z)**2)  # Use 3D dist for better accuracy
 
-    # Thumb tip (4), index tip (8), middle (12), ring (16), pinky (20)
+    # Finger IDs
+    thumb_tip, thumb_ip = 4, 3
+    index_tip, index_dip, index_pip, index_mcp = 8, 7, 6, 5
+    middle_tip, middle_dip, middle_pip, middle_mcp = 12, 11, 10, 9
+    ring_tip, ring_dip, ring_pip, ring_mcp = 16, 15, 14, 13
+    pinky_tip, pinky_dip, pinky_pip, pinky_mcp = 20, 19, 18, 17
+    wrist = 0
 
-    # A: Closed fist, thumb on side (all fingers curled, thumb not inside)
-    if all(is_curled(fid) for fid in [8,12,16,20]) and tip(4).x > tip(5).x:  # Thumb outside index MCP
+    # Finger state helpers with adjusted thresholds
+    thumb_extended = dist(thumb_tip, wrist) > dist (thumb_ip, wrist) * 1.1  # Approximate extension
+    index_extended = is_finger_extended(index_tip, index_pip)
+    middle_extended = is_finger_extended(middle_tip, middle_pip)
+    ring_extended = is_finger_extended(ring_tip, ring_pip)
+    pinky_extended = is_finger_extended(pinky_tip, pinky_pip)
+
+    index_curled = is_finger_curled(index_tip, index_pip)
+    middle_curled = is_finger_curled(middle_tip, middle_pip)
+    ring_curled = is_finger_curled(ring_tip, ring_pip)
+    pinky_curled = is_finger_curled(pinky_tip, pinky_pip)
+
+    # A: Fist, thumb beside fingers
+    if index_curled and middle_curled and ring_curled and pinky_curled and get_landmark(thumb_tip).x > get_landmark(index_mcp).x and not thumb_extended:
         return 'A'
 
-    # B: Open palm, four fingers extended together, thumb folded in
-    if (all(is_extended(fid) for fid in [8,12,16,20]) and
-        not is_extended(4) and  # Thumb curled
-        abs(tip(8).x - tip(20).x) < 0.15):  # Fingers close together
+    # S: Fist, thumb over fingers
+    if index_curled and middle_curled and ring_curled and pinky_curled and get_landmark(thumb_tip).y < get_landmark(index_mcp).y:
+        return 'S'
+
+    # T: Fist, thumb between index and middle
+    if index_curled and middle_curled and ring_curled and pinky_curled and dist(thumb_tip, index_pip) < 0.05 and dist(thumb_tip, middle_pip) < 0.05:
+        return 'T'
+
+    # E: Fist, fingers over thumb
+    if index_curled and middle_curled and ring_curled and pinky_curled and get_landmark(thumb_tip).y > get_landmark(index_tip).y:
+        return 'E'
+
+    # M: Thumb under index, middle, ring
+    if index_curled and middle_curled and ring_curled and pinky_extended and dist(thumb_tip, index_dip) < 0.05 and dist(thumb_tip, middle_dip) < 0.05 and dist(thumb_tip, ring_dip) < 0.05:
+        return 'M'
+
+    # N: Thumb under index, middle
+    if index_curled and middle_curled and ring_extended and pinky_extended and dist(thumb_tip, index_dip) < 0.05 and dist(thumb_tip, middle_dip) < 0.05:
+        return 'N'
+
+    # O: Fingers curled to touch thumb like O
+    if dist(thumb_tip, index_tip) < 0.05 and middle_curled and ring_curled and pinky_curled:
+        return 'O'
+
+    # B: All fingers extended, thumb folded in
+    if index_extended and middle_extended and ring_extended and pinky_extended and not thumb_extended and abs(get_landmark(index_tip).x - get_landmark(pinky_tip).x) < 0.15:
         return 'B'
 
-    # C: Curved open hand forming C shape
-    if (dist(4, 8) > 0.15 and  # Thumb and index far apart
-        all(tip(fid).y > tip(0).y for fid in [8,12,16,20]) and  # Fingers below wrist (curved down)
-        is_extended(4) and all(is_extended(fid) for fid in [8,12,16,20])):
-        return 'C'
+    # F: Thumb and index form circle, others extended
+    if dist(thumb_tip, index_tip) < 0.05 and middle_extended and ring_extended and pinky_extended and is_finger_curled(index_tip, index_dip, 0.02):  # Index slightly bent
+        return 'F'
 
-    # D: Index extended, others curled, thumb touching middle finger side
-    if (is_extended(8) and all(is_curled(fid) for fid in [12,16,20]) and
-        dist(4, 12) < 0.1):  # Thumb close to middle tip/PIP
+    # D: Index extended, thumb touches middle, others curled
+    if index_extended and middle_curled and ring_curled and pinky_curled and dist(thumb_tip, middle_tip) < 0.05:
         return 'D'
 
-    # E: All fingers curled over thumb, flat-ish
-    if (all(is_curled(fid) for fid in [8,12,16,20]) and
-        tip(4).y > tip(8).y and  # Thumb tucked under fingers
-        max(tip(fid).y for fid in [8,12,16,20]) - min(tip(fid).y for fid in [8,12,16,20]) < 0.08):  # Fingers at similar height
-        return 'E'
+    # G: Index and thumb extended horizontal, others curled
+    if index_extended and thumb_extended and middle_curled and ring_curled and pinky_curled and abs(get_landmark(thumb_tip).y - get_landmark(index_tip).y) < 0.1:
+        return 'G'
+
+    # H: Index and middle extended, parallel, others curled
+    if index_extended and middle_extended and ring_curled and pinky_curled and not thumb_extended and abs(get_landmark(index_tip).x - get_landmark(middle_tip).x) < 0.05:
+        return 'H'
+
+    # I: Pinky extended, others curled, thumb over
+    if pinky_extended and index_curled and middle_curled and ring_curled and not thumb_extended:
+        return 'I'
+
+    # K: Index and middle extended, thumb on middle pip
+    if index_extended and middle_extended and ring_curled and pinky_curled and dist(thumb_tip, middle_pip) < 0.05:
+        return 'K'
+
+    # L: Index and thumb extended forming L
+    if index_extended and thumb_extended and middle_curled and ring_curled and pinky_curled and get_landmark(thumb_tip).x < get_landmark(index_tip).x - 0.1:
+        return 'L'
+
+    # R: Index and middle extended, crossed
+    if index_extended and middle_extended and ring_curled and pinky_curled and not thumb_extended and dist(index_tip, middle_tip) < 0.05 and get_landmark(index_tip).x > get_landmark(middle_tip).x:
+        return 'R'
+
+    # U: Index and middle extended, together
+    if index_extended and middle_extended and ring_curled and pinky_curled and not thumb_extended and dist(index_tip, middle_tip) < 0.05:
+        return 'U'
+
+    # V: Index and middle extended, spread
+    if index_extended and middle_extended and ring_curled and pinky_curled and not thumb_extended and dist(index_tip, middle_tip) > 0.1:
+        return 'V'
+
+    # W: Index, middle, ring extended, spread
+    if index_extended and middle_extended and ring_extended and pinky_curled and not thumb_extended and dist(index_tip, ring_tip) > 0.15:
+        return 'W'
+
+    # X: Index bent (hook), others curled
+    if is_finger_curled(index_tip, index_dip, 0.0) and not index_extended and middle_curled and ring_curled and pinky_curled and thumb_extended:
+        return 'X'
+
+    # Y: Thumb and pinky extended, others curled
+    if thumb_extended and pinky_extended and index_curled and middle_curled and ring_curled:
+        return 'Y'
+
+    # C: Curved like C, thumb and fingers form arc
+    if thumb_extended and index_extended and middle_extended and ring_extended and pinky_extended and dist(thumb_tip, index_tip) > 0.15 and all(is_finger_curled(fid, fid-2, 0.02) for fid in [8,12,16,20]):  # Slight curl
+        return 'C'
+
+    # P, Q are often dynamic or oriented down, approximate as K, G but check orientation (higher y for tips)
+    if index_extended and middle_extended and ring_curled and pinky_curled and dist(thumb_tip, middle_pip) < 0.05 and get_landmark(index_tip).y > get_landmark(wrist).y:  # Pointing down
+        return 'P'
+
+    # Z: Similar to index extended, but since dynamic, approximate as 'I' with motion, but static: index extended, others curled
+    if index_extended and middle_curled and ring_curled and pinky_curled and thumb_extended:  # Approximate
+        return 'Z'
 
     return None
 
-# GESTURE RECOGNITION
+# GESTURE RECOGNITION (kept similar, minor adjustments)
 def recognize_gesture(landmarks):
     global last_gesture_time, current_gesture, rickroll_triggered
     now = time.time()
     if now - last_gesture_time < gesture_cooldown:
         return None
 
-    tip = lambda i: landmarks[i]
+    tip = lambda i: landmarks.landmark[i]
 
-    # Finger states
+    # Finger states with adjusted thresholds
     index_extended   = tip(8).y  < tip(6).y  - 0.05
     middle_extended  = tip(12).y < tip(10).y - 0.05
     ring_extended    = tip(16).y < tip(14).y - 0.05
@@ -211,8 +305,29 @@ def recognize_gesture(landmarks):
     current_gesture = None
     return None
 
+def perform_search(buffer):
+    if not buffer:
+        return
+    query = buffer.lower()
+    best_ratio = 0
+    best_index = None
+    for i, song in enumerate(playlist):
+        song_name = os.path.splitext(song)[0].lower()
+        ratio = difflib.SequenceMatcher(None, query, song_name).ratio()
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_index = i
+    if best_index is not None and best_ratio >= 0.6:  # Adjustable threshold
+        global current_index, current_position
+        current_index = best_index
+        current_position = 0
+        play_song()
+        log_gesture(f"SEARCHED FOR '{buffer}' → PLAYING {playlist[best_index]}")
+    else:
+        log_gesture(f"SEARCHED FOR '{buffer}' → NO MATCH FOUND")
+
 def generate_video_feed():
-    global is_camera_active, cap, current_gesture, rickroll_triggered
+    global is_camera_active, cap, current_gesture, rickroll_triggered, search_buffer, last_search_time, last_letter_time
 
     while True:
         if rickroll_triggered and not is_camera_active:
@@ -243,29 +358,47 @@ def generate_video_feed():
         results = hands.process(rgb)
 
         gesture = None
+        asl_letter = None
         
         if results.multi_hand_landmarks:
-            hand = max(results.multi_hand_landmarks, key=lambda h: h.landmark[0].z)  # Pick the closest hand
+            hand = max(results.multi_hand_landmarks, key=lambda h: h.landmark[0].z)  # Closest hand
             mp_drawing.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS,
                                       mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2),
                                       mp_drawing.DrawingSpec(color=(255,255,255), thickness=2))
 
-            asl_letter = recognize_asl_letter(hand.landmark)
-            gesture = recognize_gesture(hand.landmark)
+            asl_letter = recognize_asl_letter(hand)
+            gesture = recognize_gesture(hand)
 
-            if asl_letter:
-                cv2.putText(frame, f"ASL: {asl_letter}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 0), 4)
-                log_gesture(f"ASL LETTER {asl_letter}")
-                # Optional: print to console too
-                print(f"Detected ASL letter: {asl_letter}")
+            now = time.time()
+
+            if asl_letter and not gesture:  # Only append if no control gesture to avoid conflicts
+                if now - last_letter_time > letter_cooldown:
+                    search_buffer += asl_letter
+                    last_search_time = now
+                    last_letter_time = now
+                    log_gesture(f"ASL LETTER {asl_letter} ADDED TO SEARCH")
+                    print(f"Detected ASL letter: {asl_letter} (added to search)")
 
             if gesture:
                 handle_gesture(gesture)
+
+            if asl_letter:
+                cv2.putText(frame, f"ASL: {asl_letter}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 0), 4)
 
         if current_gesture:
             txt = current_gesture.replace("_", " ").upper()
             cv2.putText(frame, txt, (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0,0,0), 4)
             cv2.putText(frame, txt, (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0,255,100), 3)
+
+        # Display search buffer
+        if search_buffer:
+            cv2.putText(frame, f"Search: {search_buffer}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+
+        # Check for search timeout
+        now = time.time()
+        if search_buffer and now - last_search_time > SEARCH_TIMEOUT:
+            perform_search(search_buffer)
+            search_buffer = ""
 
         _, buf = cv2.imencode('.jpg', frame)
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
@@ -302,7 +435,6 @@ def play_song():
     pygame.mixer.music.set_volume(current_volume)
     pygame.mixer.music.play(start=current_position/1000)
     current_position = 0
-    search_buffer = ""
 
 def next_song():
     global current_index, current_position
