@@ -476,15 +476,85 @@ def get_playlist():
 def video_feed():
     return Response(generate_video_feed(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-@app.route('/control/<action>', methods=['POST'])
-def control(action):
+@app.route('/control/toggle_camera', methods=['POST'])
+def control_toggle_camera():
     global is_camera_active
-    if action == 'toggle_camera':
-        is_camera_active = not is_camera_active
-        if is_camera_active:
-            open_camera() 
-        return jsonify({'status': 'success', 'is_camera_active': is_camera_active})
+    is_camera_active = not is_camera_active
+    if is_camera_active:
+        open_camera()
+    return jsonify({'status': 'success', 'is_camera_active': is_camera_active})
+
+@app.route('/control/play', methods=['POST'])
+def control_play():
+    if playlist and not pygame.mixer.music.get_busy():
+        pygame.mixer.music.unpause()
+        if not pygame.mixer.music.get_busy():
+            play_song()
     return jsonify({'status': 'success'})
+
+@app.route('/control/pause', methods=['POST'])
+def control_pause():
+    pygame.mixer.music.pause()
+    return jsonify({'status': 'success'})
+
+@app.route('/control/next', methods=['POST'])
+def control_next():
+    next_song()
+    return jsonify({'status': 'success'})
+
+@app.route('/control/previous', methods=['POST'])
+def control_previous():
+    previous_song()
+    return jsonify({'status': 'success'})
+
+@app.route('/control/volume/<float:level>', methods=['POST'])
+def control_volume(level):
+    global current_volume
+    current_volume = max(0.0, min(1.0, level))
+    pygame.mixer.music.set_volume(current_volume)
+    return jsonify({'status': 'success', 'volume': round(current_volume, 2)})
+
+@app.route('/control/seek/<float:position>', methods=['POST'])
+def control_seek(position):
+    global current_position
+    if playlist and pygame.mixer.music.get_busy():
+        pygame.mixer.music.play(start=position)
+    current_position = 0
+    return jsonify({'status': 'success'})
+
+@app.route('/control/play_index/<int:index>', methods=['POST'])
+def control_play_index(index):
+    global current_index, current_position
+    if playlist and 0 <= index < len(playlist):
+        current_index = index
+        current_position = 0
+        play_song()
+    return jsonify({'status': 'success'})
+
+@app.route('/api/cameras')
+def api_cameras():
+    available = []
+    for i in range(5):
+        backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
+        temp = cv2.VideoCapture(i, backend)
+        if temp.isOpened():
+            available.append(i)
+            temp.release()
+    return jsonify({'available': available, 'current': 0 if cap and cap.isOpened() else -1})
+
+@app.route('/control/camera/<int:index>', methods=['POST'])
+def control_camera(index):
+    global cap
+    if cap and cap.isOpened():
+        cap.release()
+    backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
+    cap = cv2.VideoCapture(index, backend)
+    if cap.isOpened():
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+        cap.set(cv2.CAP_PROP_FPS, 30)
+        return jsonify({'status': 'success', 'camera': index})
+    return jsonify({'status': 'error', 'message': f'Camera {index} not available'}), 400
 
 @app.route('/api/state')
 def get_state():
