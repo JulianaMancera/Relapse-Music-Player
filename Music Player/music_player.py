@@ -12,12 +12,19 @@ import difflib
 import webbrowser
 from mutagen import File
 
-app = Flask(__name__)
-
 # DIRECTORIES
 script_dir = os.path.dirname(os.path.abspath(__file__))
 music_dir = os.path.join(script_dir, "music")
 lyrics_dir = os.path.join(script_dir, "lyrics")
+templates_dir = os.path.join(script_dir, "templates")
+static_dir = os.path.join(script_dir, "static")
+
+# Flask app with explicit folder paths
+app = Flask(__name__, 
+    template_folder=templates_dir,
+    static_folder=static_dir,
+    static_url_path='/static'
+)
 song_durations = {}
 rickroll_triggered = False
 
@@ -99,6 +106,12 @@ def open_camera():
         cap.set(cv2.CAP_PROP_FPS, 30)
         return True
     return False
+
+def close_camera():
+    global cap
+    if cap and cap.isOpened():
+        cap.release()
+        cap = None
 
 # IMPROVED ASL LETTER RECOGNITION
 def recognize_asl_letter(landmarks):
@@ -482,6 +495,8 @@ def control_toggle_camera():
     is_camera_active = not is_camera_active
     if is_camera_active:
         open_camera()
+    else:
+        close_camera()
     return jsonify({'status': 'success', 'is_camera_active': is_camera_active})
 
 @app.route('/control/play', methods=['POST'])
