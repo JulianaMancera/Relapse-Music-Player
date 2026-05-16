@@ -132,21 +132,38 @@ class ASLModelTrainer:
         return model, base_model
     
     def train(self, epochs=20):
-        """Train the model"""
+        """Train the model (resumable from checkpoint)"""
         print("\n" + "="*60)
         print("STARTING TRAINING")
         print("="*60)
-        
+
+        # Check for resume state
+        state_file = self.model_dir / "training_state.json"
+        resume_phase = 1
+        resume_epoch = 0
+
+        if state_file.exists():
+            with open(state_file, "r") as f:
+                state = json.load(f)
+            resume_phase = state["phase"]
+            resume_epoch = state["epoch"]
+            print(f"\n✓ Resuming from Phase {resume_phase}, Epoch {resume_epoch}")
+
         # Verify dataset
         if not self.verify_dataset():
             return False
-        
+
         # Prepare data
         train_gen, val_gen, test_gen = self.prepare_data()
-        
+
         # Build model
         model, base_model = self.build_model(num_classes=train_gen.num_classes)
-        
+
+        # Load checkpoint if resuming
+        if (self.model_dir / "best_model.h5").exists() and resume_epoch > 0:
+            print(f"✓ Loading checkpoint from best_model.h5")
+            model = keras.models.load_model(self.model_dir / "best_model.h5")
+
         # Callbacks
         callbacks = [
             EarlyStopping(
@@ -169,38 +186,49 @@ class ASLModelTrainer:
                 verbose=1
             )
         ]
-        
+
         # Phase 1: Train with frozen base (faster)
-        print("\n📊 Phase 1: Training top layers (frozen backbone)...")
-        history1 = model.fit(
-            train_gen,
-            validation_data=val_gen,
-            epochs=10,
-            callbacks=callbacks,
-            verbose=1
-        )
-        
+        if resume_phase == 1:
+            print("\n📊 Phase 1: Training top layers (frozen backbone)...")
+            history1 = model.fit(
+                train_gen,
+                validation_data=val_gen,
+                epochs=10,
+                initial_epoch=min(resume_epoch, 10),
+                callbacks=callbacks,
+                verbose=1
+            )
+            # Save state
+            with open(state_file, "w") as f:
+                json.dump({"phase": 2, "epoch": 10}, f)
+            resume_phase = 2
+
         # Phase 2: Fine-tune (unfreeze some layers)
-        print("\n📊 Phase 2: Fine-tuning with unfrozen backbone...")
-        base_model.trainable = True
-        
-        # Unfreeze last 30 layers
-        for layer in base_model.layers[:-30]:
-            layer.trainable = False
-        
-        model.compile(
-            optimizer=keras.optimizers.Adam(learning_rate=0.0001),
-            loss='categorical_crossentropy',
-            metrics=['accuracy']
-        )
-        
-        history2 = model.fit(
-            train_gen,
-            validation_data=val_gen,
-            epochs=epochs - 10,
-            callbacks=callbacks,
-            verbose=1
-        )
+        if resume_phase == 2:
+            print("\n📊 Phase 2: Fine-tuning with unfrozen backbone...")
+            base_model.trainable = True
+
+            # Unfreeze last 30 layers
+            for layer in base_model.layers[:-30]:
+                layer.trainable = False
+
+            model.compile(
+                optimizer=keras.optimizers.Adam(learning_rate=0.0001),
+                loss='categorical_crossentropy',
+                metrics=['accuracy']
+            )
+
+            history2 = model.fit(
+                train_gen,
+                validation_data=val_gen,
+                epochs=epochs,
+                initial_epoch=max(resume_epoch, 10),
+                callbacks=callbacks,
+                verbose=1
+            )
+            # Save state
+            with open(state_file, "w") as f:
+                json.dump({"phase": 2, "epoch": epochs}, f)
         
         # Evaluate
         print("\n" + "="*60)
