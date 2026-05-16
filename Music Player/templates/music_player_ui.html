@@ -698,28 +698,16 @@
     const lyricsContent = document.getElementById('lyrics-content');
 
     async function loadPlaylist() {
-    try {
-        const response = await fetch('/api/playlist');
-        playlist = await response.json();
-        console.log("Loaded playlist:", playlist);
-        updatePlaylistUI(); 
-    } catch (err) {
-        console.error("Failed to load playlist:", err);
-    }
-}
-
-// Load playlist when page opens
-window.onload = loadPlaylist;
-
-    fetch('/api/playlist')
-        .then(response => response.json())
-        .then(data => {
+        try {
+            const response = await fetch('/api/playlist');
+            const data = await response.json();
             updatePlaylist(data);
-        })
-        .catch(error => {
-            console.log('Using demo playlist:', error);
-            updatePlaylist(demoPlaylist);
-        });
+        } catch (err) {
+            console.error("Failed to load playlist:", err);
+        }
+    }
+
+    window.onload = loadPlaylist;
 
     function updatePlaylist(newPlaylist) {
         playlist = newPlaylist;
@@ -738,7 +726,7 @@ window.onload = loadPlaylist;
                 filteredPlaylist.forEach((song, displayIndex) => {
                     const realIndex = playlist.indexOf(song);
                     const songItem = document.createElement('div');
-                    songItem.textContent = song.replace('.mp3', '').replace('.wav', '');
+                    songItem.textContent = song.replace(/\.(mp3|wav|ogg|flac|m4a)$/i, '');
                         
                     songItem.addEventListener('click', () => {
                             fetch(`/control/play_index/${realIndex}`, { method: 'POST' })
@@ -965,9 +953,9 @@ document.getElementById('cvBtn').addEventListener('click', () => {
     function updateTrackDisplay() {
         if (playlist.length > 0) {
             const trackIndex = shuffle ? shuffleIndices[currentTrack] : currentTrack;
-            songTitle.textContent = isPlaying ? 
-                `Playing: ${playlist[trackIndex].replace('.mp3', '')}` : 
-                `Paused: ${playlist[trackIndex].replace('.mp3', '')}`;
+            songTitle.textContent = isPlaying ?
+                `Playing: ${playlist[trackIndex].replace(/\.(mp3|wav|ogg|flac|m4a)$/i, '')}` :
+                `Paused: ${playlist[trackIndex].replace(/\.(mp3|wav|ogg|flac|m4a)$/i, '')}`;
         }
     }
 
@@ -1019,7 +1007,7 @@ document.getElementById('cvBtn').addEventListener('click', () => {
                     // Update song title
                     if (playlist.length > 0) {
                         const trackIdx = shuffle ? shuffleIndices[currentTrack] : currentTrack;
-                        const name = playlist[trackIdx]?.replace('.mp3', '') || "Unknown";
+                        const name = playlist[trackIdx]?.replace(/\.(mp3|wav|ogg|flac|m4a)$/i, '') || "Unknown";
                         songTitle.textContent = isPlaying ? `Playing: ${name}` : `Paused: ${name}`;
                     }
 
