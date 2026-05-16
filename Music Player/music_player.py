@@ -11,6 +11,15 @@ import numpy as np
 import difflib
 import webbrowser
 from mutagen import File
+from pathlib import Path
+
+# Try to import ML-based ASL recognizer
+try:
+    from asl_recognizer import ASLRecognizer
+    ML_ASL_AVAILABLE = True
+except (ImportError, FileNotFoundError):
+    ML_ASL_AVAILABLE = False
+    print("⚠ ML-based ASL recognizer not available. Train model first: python train_asl_model.py")
 
 # DIRECTORIES
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -61,6 +70,16 @@ gesture_cooldown = 1.0
 current_gesture = None
 current_volume = 0.5
 cap = None
+
+# ASL RECOGNIZER (ML-based)
+asl_recognizer = None
+if ML_ASL_AVAILABLE:
+    try:
+        asl_recognizer = ASLRecognizer()
+        print("✓ ML-based ASL Recognizer initialized successfully")
+    except Exception as e:
+        print(f"⚠ Failed to initialize ASL recognizer: {e}")
+        ML_ASL_AVAILABLE = False
 
 # SEARCH
 search_buffer = ""
@@ -379,7 +398,36 @@ def generate_video_feed():
                                       mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2),
                                       mp_drawing.DrawingSpec(color=(255,255,255), thickness=2))
 
-            asl_letter = recognize_asl_letter(hand)
+            # ML-based ASL Recognition
+            if ML_ASL_AVAILABLE and asl_recognizer:
+                try:
+                    # Extract hand region from frame for better accuracy
+                    h, w = frame.shape[:2]
+                    
+                    # Get hand bounding box from landmarks
+                    x_coords = [lm.x for lm in hand.landmark]
+                    y_coords = [lm.y for lm in hand.landmark]
+                    
+                    x_min, x_max = min(x_coords), max(x_coords)
+                    y_min, y_max = min(y_coords), max(y_coords)
+                    
+                    # Add padding
+                    padding = 0.2
+                    x_min = max(0, int((x_min - padding) * w))
+                    x_max = min(w, int((x_max + padding) * w))
+                    y_min = max(0, int((y_min - padding) * h))
+                    y_max = min(h, int((y_max + padding) * h))
+                    
+                    # Extract hand region
+                    hand_region = frame[y_min:y_max, x_min:x_max]
+                    
+                    # Recognize using ML model
+                    asl_letter = asl_recognizer.recognize(hand_region)
+                
+                except Exception as e:
+                    pass  # Silently handle errors and fallback to old method
+            
+            # Fallback to rule-based gesture recognition
             gesture = recognize_gesture(hand)
 
             now = time.time()
@@ -397,6 +445,8 @@ def generate_video_feed():
 
             if asl_letter:
                 cv2.putText(frame, f"ASL: {asl_letter}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 0), 4)
+                if ML_ASL_AVAILABLE:
+                    cv2.putText(frame, "[ML]", (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 100), 2)
 
         if current_gesture:
             txt = current_gesture.replace("_", " ").upper()
