@@ -35,6 +35,7 @@ app = Flask(__name__,
     static_url_path='/static'
 )
 song_durations = {}
+song_metadata = {}
 rickroll_triggered = False
 
 # PLAYLIST
@@ -43,16 +44,32 @@ def load_playlist():
         return []
     songs = [f for f in os.listdir(music_dir) if f.lower().endswith(('.mp3', '.wav', '.ogg', '.flac', '.m4a'))]
     songs.sort(key=str.lower)
-    global song_durations
+    global song_durations, song_metadata
     song_durations = {}
+    song_metadata = {}
     for song in songs:
+        file_path = os.path.join(music_dir, song)
         try:
-            file_path = os.path.join(music_dir, song)
             audio_file = File(file_path)
-            if audio_file:
-                song_durations[song] = audio_file.info.length
+            song_durations[song] = audio_file.info.length if audio_file else 0
         except:
             song_durations[song] = 0
+        try:
+            audio_easy = File(file_path, easy=True)
+            tags = audio_easy.tags if audio_easy else None
+            if tags:
+                def tag_val(key, fallback=''):
+                    v = tags.get(key, [fallback])
+                    return str(v[0]) if v else fallback
+                song_metadata[song] = {
+                    'title': tag_val('title', os.path.splitext(song)[0]),
+                    'artist': tag_val('artist'),
+                    'album': tag_val('album'),
+                }
+            else:
+                song_metadata[song] = {'title': os.path.splitext(song)[0], 'artist': '', 'album': ''}
+        except:
+            song_metadata[song] = {'title': os.path.splitext(song)[0], 'artist': '', 'album': ''}
     return songs
 
 playlist = load_playlist()
@@ -344,12 +361,21 @@ def perform_search(buffer):
     best_ratio = 0
     best_index = None
     for i, song in enumerate(playlist):
-        song_name = os.path.splitext(song)[0].lower()
-        ratio = difflib.SequenceMatcher(None, query, song_name).ratio()
-        if ratio > best_ratio:
-            best_ratio = ratio
-            best_index = i
-    if best_index is not None and best_ratio >= 0.6:  # Adjustable threshold
+        meta = song_metadata.get(song, {})
+        candidates = [
+            meta.get('title', ''),
+            meta.get('artist', ''),
+            meta.get('album', ''),
+            os.path.splitext(song)[0],
+        ]
+        for candidate in candidates:
+            if not candidate:
+                continue
+            ratio = difflib.SequenceMatcher(None, query, candidate.lower()).ratio()
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_index = i
+    if best_index is not None and best_ratio >= 0.6:
         global current_index, current_position
         current_index = best_index
         current_position = 0
@@ -534,6 +560,10 @@ def serve_lyrics(filename):
 @app.route('/api/playlist')
 def get_playlist():
     return jsonify(playlist)
+
+@app.route('/api/metadata')
+def get_metadata():
+    return jsonify(song_metadata)
 
 @app.route('/video_feed')
 def video_feed():

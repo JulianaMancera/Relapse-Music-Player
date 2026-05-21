@@ -427,6 +427,17 @@
             border-left-color: #ff6b81;
             color: #ff6b81;
         }
+
+        .song-artist-text {
+            display: block;
+            font-size: 0.75em;
+            color: rgba(240, 230, 210, 0.55);
+            margin-top: 2px;
+        }
+
+        #songList div.active .song-artist-text {
+            color: rgba(255, 107, 129, 0.7);
+        }
         
         .volume-display {
             font-size: 0.8em;
@@ -664,6 +675,7 @@
     let currentTrack = 0;
     let playlist = [];
     let filteredPlaylist = [];
+    let songMetadata = {};
     let isPlaying = false;
     let shuffle = false;
     let shuffleIndices = [];
@@ -699,8 +711,12 @@
 
     async function loadPlaylist() {
         try {
-            const response = await fetch('/api/playlist');
-            const data = await response.json();
+            const [playlistRes, metaRes] = await Promise.all([
+                fetch('/api/playlist'),
+                fetch('/api/metadata')
+            ]);
+            const data = await playlistRes.json();
+            songMetadata = await metaRes.json();
             updatePlaylist(data);
         } catch (err) {
             console.error("Failed to load playlist:", err);
@@ -725,14 +741,21 @@
                 songList.innerHTML = '';
                 filteredPlaylist.forEach((song, displayIndex) => {
                     const realIndex = playlist.indexOf(song);
+                    const meta = songMetadata[song] || {};
+                    const title = meta.title || song.replace(/\.(mp3|wav|ogg|flac|m4a)$/i, '');
+                    const artist = meta.artist || '';
+
                     const songItem = document.createElement('div');
-                    songItem.textContent = song.replace(/\.(mp3|wav|ogg|flac|m4a)$/i, '');
-                        
+                    if (artist) {
+                        songItem.innerHTML = `<span>${title}</span><span class="song-artist-text">${artist}</span>`;
+                    } else {
+                        songItem.textContent = title;
+                    }
+
                     songItem.addEventListener('click', () => {
                             fetch(`/control/play_index/${realIndex}`, { method: 'POST' })
                                 .then(() => syncState());
                         });
-                        // Highlight current song
                         const currentRealIndex = shuffle ? shuffleIndices[currentTrack] : currentTrack;
                         if (realIndex === currentRealIndex) {
                             songItem.classList.add('active');
@@ -953,9 +976,11 @@ document.getElementById('cvBtn').addEventListener('click', () => {
     function updateTrackDisplay() {
         if (playlist.length > 0) {
             const trackIndex = shuffle ? shuffleIndices[currentTrack] : currentTrack;
-            songTitle.textContent = isPlaying ?
-                `Playing: ${playlist[trackIndex].replace(/\.(mp3|wav|ogg|flac|m4a)$/i, '')}` :
-                `Paused: ${playlist[trackIndex].replace(/\.(mp3|wav|ogg|flac|m4a)$/i, '')}`;
+            const song = playlist[trackIndex];
+            const meta = songMetadata[song] || {};
+            const title = meta.title || song.replace(/\.(mp3|wav|ogg|flac|m4a)$/i, '');
+            const artist = meta.artist ? ` — ${meta.artist}` : '';
+            songTitle.textContent = isPlaying ? `Playing: ${title}${artist}` : `Paused: ${title}${artist}`;
         }
     }
 
@@ -964,11 +989,18 @@ document.getElementById('cvBtn').addEventListener('click', () => {
     }
 
     searchInput.addEventListener('input', () => {
-        const query = searchInput.value.toLowerCase();
-        filteredPlaylist = playlist
-            .map((song, i) => ({ song, index: i }))
-            .filter(({ song }) => song.toLowerCase().includes(query))
-            .map(({ song, index }) => song);
+        const query = searchInput.value.toLowerCase().trim();
+        if (!query) {
+            filteredPlaylist = [...playlist];
+        } else {
+            filteredPlaylist = playlist.filter(song => {
+                const meta = songMetadata[song] || {};
+                return (meta.title || '').toLowerCase().includes(query) ||
+                       (meta.artist || '').toLowerCase().includes(query) ||
+                       (meta.album || '').toLowerCase().includes(query) ||
+                       song.toLowerCase().includes(query);
+            });
+        }
         updateSongList();
         if (filteredPlaylist.length === 0) {
             songTitle.textContent = "No songs match your search";
@@ -1007,8 +1039,11 @@ document.getElementById('cvBtn').addEventListener('click', () => {
                     // Update song title
                     if (playlist.length > 0) {
                         const trackIdx = shuffle ? shuffleIndices[currentTrack] : currentTrack;
-                        const name = playlist[trackIdx]?.replace(/\.(mp3|wav|ogg|flac|m4a)$/i, '') || "Unknown";
-                        songTitle.textContent = isPlaying ? `Playing: ${name}` : `Paused: ${name}`;
+                        const song = playlist[trackIdx];
+                        const meta = songMetadata[song] || {};
+                        const name = meta.title || song?.replace(/\.(mp3|wav|ogg|flac|m4a)$/i, '') || "Unknown";
+                        const artist = meta.artist ? ` — ${meta.artist}` : '';
+                        songTitle.textContent = isPlaying ? `Playing: ${name}${artist}` : `Paused: ${name}${artist}`;
                     }
 
                     // Update progress bar

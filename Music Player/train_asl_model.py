@@ -2,17 +2,23 @@
 Train ASL Recognition Model using Transfer Learning
 This replaces the rule-based landmark detection with a ML model
 """
-import os
-import numpy as np
-import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.applications import MobileNetV2
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.layers import Dense, Dropout, GlobalAveragePooling2D, Input
 from tensorflow.keras.models import Model
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau, Callback
 from pathlib import Path
 import json
+
+class StateCallback(Callback):
+    def __init__(self, state_file, phase):
+        self.state_file = state_file
+        self.phase = phase
+
+    def on_epoch_end(self, epoch, _logs=None):
+        with open(self.state_file, "w") as f:
+            json.dump({"phase": self.phase, "epoch": epoch + 1}, f)
 
 class ASLModelTrainer:
     def __init__(self, dataset_dir="datasets/asl-alphabet", model_dir="models"):
@@ -139,6 +145,7 @@ class ASLModelTrainer:
 
         # Check for resume state
         state_file = self.model_dir / "training_state.json"
+        checkpoint_path = self.model_dir / "best_model.h5"
         resume_phase = 1
         resume_epoch = 0
 
@@ -148,6 +155,11 @@ class ASLModelTrainer:
             resume_phase = state["phase"]
             resume_epoch = state["epoch"]
             print(f"\n✓ Resuming from Phase {resume_phase}, Epoch {resume_epoch}")
+        elif checkpoint_path.exists():
+            # Checkpoint exists but state file is missing — Phase 1 was complete
+            resume_phase = 2
+            resume_epoch = 10
+            print(f"\n⚠ State file missing but checkpoint found — assuming Phase 1 complete, starting Phase 2")
 
         # Verify dataset
         if not self.verify_dataset():
@@ -159,13 +171,18 @@ class ASLModelTrainer:
         # Build model
         model, base_model = self.build_model(num_classes=train_gen.num_classes)
 
-        # Load checkpoint if resuming
-        if (self.model_dir / "best_model.h5").exists() and resume_epoch > 0:
+        # Load checkpoint whenever it exists and we have a resume point
+        if checkpoint_path.exists() and resume_epoch > 0:
             print(f"✓ Loading checkpoint from best_model.h5")
-            model = keras.models.load_model(self.model_dir / "best_model.h5")
+            model = keras.models.load_model(checkpoint_path)
+            # Re-derive base_model from the loaded model so Phase 2 unfreezes the right layers
+            for layer in model.layers:
+                if 'mobilenet' in layer.name.lower():
+                    base_model = layer
+                    break
 
-        # Callbacks
-        callbacks = [
+        # Callbacks (Phase 1)
+        callbacks_phase1 = [
             EarlyStopping(
                 monitor='val_loss',
                 patience=5,
@@ -184,24 +201,26 @@ class ASLModelTrainer:
                 patience=3,
                 min_lr=1e-7,
                 verbose=1
-            )
+            ),
+            StateCallback(state_file, phase=1)
         ]
 
         # Phase 1: Train with frozen base (faster)
         if resume_phase == 1:
             print("\n📊 Phase 1: Training top layers (frozen backbone)...")
-            history1 = model.fit(
+            _ = model.fit(
                 train_gen,
                 validation_data=val_gen,
                 epochs=10,
                 initial_epoch=min(resume_epoch, 10),
-                callbacks=callbacks,
+                callbacks=callbacks_phase1,
                 verbose=1
             )
-            # Save state
+            resume_phase = 2
+            resume_epoch = 10
+            # Write state so a restart skips Phase 1
             with open(state_file, "w") as f:
                 json.dump({"phase": 2, "epoch": 10}, f)
-            resume_phase = 2
 
         # Phase 2: Fine-tune (unfreeze some layers)
         if resume_phase == 2:
@@ -218,28 +237,48 @@ class ASLModelTrainer:
                 metrics=['accuracy']
             )
 
-            history2 = model.fit(
+            callbacks_phase2 = [
+                EarlyStopping(
+                    monitor='val_loss',
+                    patience=5,
+                    restore_best_weights=True,
+                    verbose=1
+                ),
+                ModelCheckpoint(
+                    self.model_dir / "best_model.h5",
+                    monitor='val_accuracy',
+                    save_best_only=True,
+                    verbose=1
+                ),
+                ReduceLROnPlateau(
+                    monitor='val_loss',
+                    factor=0.5,
+                    patience=3,
+                    min_lr=1e-7,
+                    verbose=1
+                ),
+                StateCallback(state_file, phase=2)
+            ]
+
+            _ = model.fit(
                 train_gen,
                 validation_data=val_gen,
                 epochs=epochs,
                 initial_epoch=max(resume_epoch, 10),
-                callbacks=callbacks,
+                callbacks=callbacks_phase2,
                 verbose=1
             )
-            # Save state
-            with open(state_file, "w") as f:
-                json.dump({"phase": 2, "epoch": epochs}, f)
         
         # Evaluate
         print("\n" + "="*60)
         print("EVALUATION")
         print("="*60)
         
-        val_loss, val_acc = model.evaluate(val_gen)
+        _, val_acc = model.evaluate(val_gen)
         print(f"Validation Accuracy: {val_acc*100:.2f}%")
         
         if test_gen:
-            test_loss, test_acc = model.evaluate(test_gen)
+            _, test_acc = model.evaluate(test_gen)
             print(f"Test Accuracy: {test_acc*100:.2f}%")
         
         # Save model
