@@ -26,8 +26,14 @@ class ASLModelTrainer:
         self.model_dir = Path(model_dir)
         self.model_dir.mkdir(exist_ok=True)
         
-        self.train_dir = self.dataset_dir / "asl_alphabet_train"
-        self.test_dir = self.dataset_dir / "asl_alphabet_test"
+        # Kaggle extracts with double nesting: asl_alphabet_train/asl_alphabet_train/A/
+        _train_outer = self.dataset_dir / "asl_alphabet_train"
+        _train_inner = _train_outer / "asl_alphabet_train"
+        self.train_dir = _train_inner if _train_inner.exists() else _train_outer
+
+        _test_outer = self.dataset_dir / "asl_alphabet_test"
+        _test_inner = _test_outer / "asl_alphabet_test"
+        self.test_dir = _test_inner if _test_inner.exists() else _test_outer
         
         # Image parameters
         self.img_size = 224
@@ -83,8 +89,11 @@ class ASLModelTrainer:
             subset='validation'
         )
         
-        # Test data (if available)
-        if self.test_dir.exists():
+        # Test data (if available and has class subdirectories)
+        _test_has_classes = self.test_dir.exists() and any(
+            d.is_dir() for d in self.test_dir.iterdir()
+        )
+        if _test_has_classes:
             test_generator = test_datagen.flow_from_directory(
                 self.test_dir,
                 target_size=(self.img_size, self.img_size),
@@ -174,7 +183,14 @@ class ASLModelTrainer:
         # Load checkpoint whenever it exists and we have a resume point
         if checkpoint_path.exists() and resume_epoch > 0:
             print(f"✓ Loading checkpoint from best_model.h5")
-            model = keras.models.load_model(checkpoint_path)
+            model = keras.models.load_model(checkpoint_path, compile=False)
+            # Recompile with a fresh optimizer — Keras 3 stale optimizer causes
+            # "Unknown variable" crash when resuming from .h5 checkpoints
+            model.compile(
+                optimizer=keras.optimizers.Adam(learning_rate=0.001),
+                loss='categorical_crossentropy',
+                metrics=['accuracy']
+            )
             # Re-derive base_model from the loaded model so Phase 2 unfreezes the right layers
             for layer in model.layers:
                 if 'mobilenet' in layer.name.lower():
@@ -186,7 +202,7 @@ class ASLModelTrainer:
             EarlyStopping(
                 monitor='val_loss',
                 patience=5,
-                restore_best_weights=True,
+                restore_best_weights=False,
                 verbose=1
             ),
             ModelCheckpoint(
@@ -241,10 +257,10 @@ class ASLModelTrainer:
                 EarlyStopping(
                     monitor='val_loss',
                     patience=5,
-                    restore_best_weights=True,
+                    restore_best_weights=False,
                     verbose=1
                 ),
-                ModelCheckpoint(
+                ModelCheckpoint( 
                     self.model_dir / "best_model.h5",
                     monitor='val_accuracy',
                     save_best_only=True,
