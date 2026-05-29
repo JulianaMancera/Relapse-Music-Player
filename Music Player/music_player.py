@@ -99,11 +99,12 @@ if ML_ASL_AVAILABLE:
         ML_ASL_AVAILABLE = False
 
 # SEARCH
+search_mode = False
 search_buffer = ""
 last_search_time = 0
 last_letter_time = 0
-letter_cooldown = 0.7  # Reduced for faster input, adjust as needed
-SEARCH_TIMEOUT = 3.0  # Slightly reduced for quicker search
+letter_cooldown = 0.7
+SEARCH_TIMEOUT = 3.0
 
 # MEDIAPIPE 
 mp_hands = mp.solutions.hands
@@ -288,7 +289,7 @@ def recognize_asl_letter(landmarks):
 
     return None
 
-# GESTURE RECOGNITION (kept similar, minor adjustments)
+# GESTURE RECOGNITION
 def recognize_gesture(landmarks):
     global last_gesture_time, current_gesture, rickroll_triggered
     now = time.time()
@@ -296,8 +297,21 @@ def recognize_gesture(landmarks):
         return None
 
     tip = lambda i: landmarks.landmark[i]
+    wrist = tip(0)
 
-    # Finger states with adjusted thresholds
+    index_curled = tip(8).y > tip(6).y + 0.02
+    middle_curled = tip(12).y > tip(10).y + 0.02
+    ring_curled = tip(16).y > tip(14).y + 0.02
+    pinky_curled = tip(20).y > tip(18).y + 0.02
+
+    # Thumbs up: thumb tip clearly above its IP joint, all fingers curled
+    thumb_up = tip(4).y < tip(3).y - 0.06
+    if thumb_up and index_curled and middle_curled and ring_curled and pinky_curled:
+        last_gesture_time = now
+        current_gesture = "toggle_search"
+        return "toggle_search"
+
+    # Finger states
     index_extended   = tip(8).y  < tip(6).y  - 0.05
     middle_extended  = tip(12).y < tip(10).y - 0.05
     ring_extended    = tip(16).y < tip(14).y - 0.05
@@ -313,7 +327,6 @@ def recognize_gesture(landmarks):
         return "rickroll"
 
     # HAND GESTURES
-    wrist = tip(0)
     extended_count = sum(1 for i in [8, 12, 16, 20] if tip(i).y < tip(i-2).y - 0.04)
 
     index_ext  = tip(8).y  < tip(6).y  - 0.06
@@ -341,12 +354,15 @@ def recognize_gesture(landmarks):
         current_gesture = "previous"
         return "previous"
 
-    if extended_count >= 4:
+    # Open hand (all 4 fingers extended + thumb) = play
+    thumb_ext = tip(4).x < tip(3).x - 0.04 if tip(0).x < tip(9).x else tip(4).x > tip(3).x + 0.04
+    if extended_count >= 4 and thumb_ext:
         last_gesture_time = now
         current_gesture = "play"
         return "play"
 
-    if extended_count <= 1:
+    # Closed fist with thumb down / across = pause (thumb NOT pointing up)
+    if extended_count == 0 and index_curled and middle_curled and ring_curled and pinky_curled and not thumb_up:
         last_gesture_time = now
         current_gesture = "pause"
         return "pause"
@@ -385,7 +401,8 @@ def perform_search(buffer):
         log_gesture(f"SEARCHED FOR '{buffer}' → NO MATCH FOUND")
 
 def generate_video_feed():
-    global is_camera_active, cap, current_gesture, rickroll_triggered, search_buffer, last_search_time, last_letter_time
+    global is_camera_active, cap, current_gesture, rickroll_triggered
+    global search_mode, search_buffer, last_search_time, last_letter_time
 
     while True:
         if rickroll_triggered and not is_camera_active:
@@ -415,85 +432,81 @@ def generate_video_feed():
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = hands.process(rgb)
 
-        gesture = None
-        asl_letter = None
-        
         if results.multi_hand_landmarks:
-            hand = max(results.multi_hand_landmarks, key=lambda h: h.landmark[0].z)  # Closest hand
+            hand = max(results.multi_hand_landmarks, key=lambda h: h.landmark[0].z)
             mp_drawing.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS,
                                       mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2),
                                       mp_drawing.DrawingSpec(color=(255,255,255), thickness=2))
 
-            # ML-based ASL Recognition
-            if ML_ASL_AVAILABLE and asl_recognizer:
-                try:
-                    # Extract hand region from frame for better accuracy
-                    h, w = frame.shape[:2]
-                    
-                    # Get hand bounding box from landmarks
-                    x_coords = [lm.x for lm in hand.landmark]
-                    y_coords = [lm.y for lm in hand.landmark]
-                    
-                    x_min, x_max = min(x_coords), max(x_coords)
-                    y_min, y_max = min(y_coords), max(y_coords)
-                    
-                    # Add padding
-                    padding = 0.2
-                    x_min = max(0, int((x_min - padding) * w))
-                    x_max = min(w, int((x_max + padding) * w))
-                    y_min = max(0, int((y_min - padding) * h))
-                    y_max = min(h, int((y_max + padding) * h))
-                    
-                    # Extract hand region
-                    hand_region = frame[y_min:y_max, x_min:x_max]
-                    
-                    # Recognize using ML model
-                    asl_letter = asl_recognizer.recognize(hand_region)
-                
-                except Exception as e:
-                    pass  # Silently handle errors and fallback to old method
-            
-            # Fallback to rule-based gesture recognition
+            # Always check for the mode-toggle gesture first
             gesture = recognize_gesture(hand)
-
             now = time.time()
 
-            if asl_letter and not gesture:  # Only append if no control gesture to avoid conflicts
-                if now - last_letter_time > letter_cooldown:
+            if gesture == "toggle_search":
+                handle_gesture(gesture)
+            elif search_mode:
+                # In search mode: collect ASL letters only, ignore control gestures
+                asl_letter = None
+                if ML_ASL_AVAILABLE and asl_recognizer:
+                    try:
+                        h, w = frame.shape[:2]
+                        x_coords = [lm.x for lm in hand.landmark]
+                        y_coords = [lm.y for lm in hand.landmark]
+                        padding = 0.2
+                        x_min = max(0, int((min(x_coords) - padding) * w))
+                        x_max = min(w, int((max(x_coords) + padding) * w))
+                        y_min = max(0, int((min(y_coords) - padding) * h))
+                        y_max = min(h, int((max(y_coords) + padding) * h))
+                        hand_region = frame[y_min:y_max, x_min:x_max]
+                        asl_letter = asl_recognizer.recognize(hand_region)
+                    except Exception:
+                        pass
+
+                if asl_letter and now - last_letter_time > letter_cooldown:
                     search_buffer += asl_letter
                     last_search_time = now
                     last_letter_time = now
-                    log_gesture(f"ASL LETTER {asl_letter} ADDED TO SEARCH")
-                    print(f"Detected ASL letter: {asl_letter} (added to search)")
+                    log_gesture(f"ASL LETTER {asl_letter} ADDED TO SEARCH: {search_buffer}")
 
-            if gesture:
-                handle_gesture(gesture)
+                if asl_letter:
+                    cv2.putText(frame, f"Letter: {asl_letter}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (255, 255, 0), 4)
+            else:
+                # In control mode: process control gestures only
+                if gesture:
+                    handle_gesture(gesture)
 
-            if asl_letter:
-                cv2.putText(frame, f"ASL: {asl_letter}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 0), 4)
-                if ML_ASL_AVAILABLE:
-                    cv2.putText(frame, "[ML]", (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 100), 2)
-
-        if current_gesture:
+        # Overlays
+        if search_mode:
+            cv2.putText(frame, "SEARCH MODE", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 4)
+            cv2.putText(frame, "SEARCH MODE", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 200, 255), 2)
+            if search_buffer:
+                cv2.putText(frame, f"> {search_buffer}", (10, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 255), 2)
+        elif current_gesture and current_gesture != "toggle_search":
             txt = current_gesture.replace("_", " ").upper()
-            cv2.putText(frame, txt, (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0,0,0), 4)
-            cv2.putText(frame, txt, (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0,255,100), 3)
+            cv2.putText(frame, txt, (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 0, 0), 4)
+            cv2.putText(frame, txt, (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 255, 100), 3)
 
-        # Display search buffer
-        if search_buffer:
-            cv2.putText(frame, f"Search: {search_buffer}", (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
-
-        # Check for search timeout
+        # Search timeout: auto-trigger search and exit search mode
         now = time.time()
-        if search_buffer and now - last_search_time > SEARCH_TIMEOUT:
+        if search_mode and search_buffer and now - last_search_time > SEARCH_TIMEOUT:
             perform_search(search_buffer)
             search_buffer = ""
+            search_mode = False
+            current_gesture = None
 
         _, buf = cv2.imencode('.jpg', frame)
         yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
 
 def handle_gesture(gesture):
-    global current_volume
+    global current_volume, search_mode, search_buffer, current_gesture
+    if gesture == "toggle_search":
+        search_mode = not search_mode
+        if not search_mode:
+            search_buffer = ""
+        current_gesture = None
+        log_gesture(f"SEARCH MODE {'ON' if search_mode else 'OFF'}")
+        return
+
     if gesture == "rickroll":
         pygame.mixer.music.stop()
         pygame.mixer.music.set_volume(1.0)
@@ -578,6 +591,16 @@ def control_toggle_camera():
     else:
         close_camera()
     return jsonify({'status': 'success', 'is_camera_active': is_camera_active})
+
+@app.route('/control/search_mode/<action>', methods=['POST'])
+def control_search_mode(action):
+    global search_mode, search_buffer
+    if action == 'on':
+        search_mode = True
+    elif action == 'off':
+        search_mode = False
+        search_buffer = ""
+    return jsonify({'status': 'success', 'search_mode': search_mode})
 
 @app.route('/control/play', methods=['POST'])
 def control_play():
@@ -664,7 +687,8 @@ def get_state():
         'volume': round(current_volume, 2),
         'position': round(position, 1),
         'duration': round(duration, 1),
-        'search_buffer': search_buffer
+        'search_buffer': search_buffer,
+        'search_mode': search_mode
     })
 
 @app.route('/reset_rickroll')

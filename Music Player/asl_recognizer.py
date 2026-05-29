@@ -9,7 +9,7 @@ from pathlib import Path
 import json
 
 class ASLRecognizer:
-    def __init__(self, model_path="models/asl_model.h5", class_indices_path="models/class_indices.json"):
+    def __init__(self, model_path="models/best_model.h5", class_indices_path="models/class_indices.json"):
         """Initialize ASL recognizer with trained model"""
         self.model_path = Path(model_path)
         self.class_indices_path = Path(class_indices_path)

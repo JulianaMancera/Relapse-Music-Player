@@ -662,7 +662,7 @@
         
         <div class="sidebar" id="sidebar">
             <h3>Playlist</h3>
-            <input type="text" id="searchInput" placeholder="Search songs...">
+            <input type="text" id="searchInput" placeholder="Search songs... (or use ASL 👍)">
             <div class="song-list-container">
                 <div id="songList"></div>
             </div>
@@ -988,7 +988,26 @@ document.getElementById('cvBtn').addEventListener('click', () => {
         window.location.href = '/';
     }
 
+    let aslSearchActive = false;
+
+    searchInput.addEventListener('focus', () => {
+        aslSearchActive = true;
+        fetch('/control/search_mode/on', { method: 'POST' });
+        searchInput.placeholder = 'Show ASL letters to the camera...';
+        searchInput.style.borderColor = '#00c8ff';
+        searchInput.style.boxShadow = '0 0 12px rgba(0, 200, 255, 0.5)';
+    });
+
+    searchInput.addEventListener('blur', () => {
+        aslSearchActive = false;
+        fetch('/control/search_mode/off', { method: 'POST' });
+        searchInput.placeholder = 'Search songs... (or use ASL 👍)';
+        searchInput.style.borderColor = '';
+        searchInput.style.boxShadow = '';
+    });
+
     searchInput.addEventListener('input', () => {
+        if (aslSearchActive) return; // let ASL control the input
         const query = searchInput.value.toLowerCase().trim();
         if (!query) {
             filteredPlaylist = [...playlist];
@@ -1060,13 +1079,43 @@ document.getElementById('cvBtn').addEventListener('click', () => {
                         volumeDisplay.textContent = `${Math.round(data.volume * 100)}%`;
                     }
 
+                    // Mirror ASL search buffer into the input field
+                    if (aslSearchActive && data.search_mode) {
+                        const buf = data.search_buffer || '';
+                        searchInput.value = buf;
+                        // Filter playlist live as letters come in
+                        if (buf) {
+                            const q = buf.toLowerCase();
+                            filteredPlaylist = playlist.filter(song => {
+                                const meta = songMetadata[song] || {};
+                                return (meta.title || '').toLowerCase().includes(q) ||
+                                       (meta.artist || '').toLowerCase().includes(q) ||
+                                       (meta.album || '').toLowerCase().includes(q) ||
+                                       song.toLowerCase().includes(q);
+                            });
+                        } else {
+                            filteredPlaylist = [...playlist];
+                        }
+                    }
+
+                    // If search mode ended server-side (search executed), clear and blur
+                    if (aslSearchActive && !data.search_mode) {
+                        aslSearchActive = false;
+                        searchInput.value = '';
+                        searchInput.placeholder = 'Search songs... (or use ASL 👍)';
+                        searchInput.style.borderColor = '';
+                        searchInput.style.boxShadow = '';
+                        searchInput.blur();
+                        filteredPlaylist = [...playlist];
+                    }
+
                     updateSongList();
                 });
         }
 
     // Initial sync to set correct state
     syncState();
-    setInterval(syncState, 500); 
+    setInterval(syncState, 500);
 
    function toggleLyrics() {
     isLyricsActive = !isLyricsActive;
