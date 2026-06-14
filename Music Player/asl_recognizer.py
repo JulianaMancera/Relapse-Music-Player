@@ -8,6 +8,28 @@ import tensorflow as tf
 from pathlib import Path
 import json
 
+
+class LegacyBatchNormalization(tf.keras.layers.BatchNormalization):
+    """Compatibility shim for older Keras BatchNormalization configs."""
+
+    @classmethod
+    def from_config(cls, config):
+        config = dict(config)
+        config.pop('renorm', None)
+        config.pop('renorm_clipping', None)
+        config.pop('renorm_momentum', None)
+        return cls(**config)
+
+
+class LegacyDense(tf.keras.layers.Dense):
+    """Compatibility shim for Dense configs saved by newer Keras versions."""
+
+    @classmethod
+    def from_config(cls, config):
+        config = dict(config)
+        config.pop('quantization_config', None)
+        return cls(**config)
+
 class ASLRecognizer:
     def __init__(self, model_path="models/best_model.h5", class_indices_path="models/class_indices.json"):
         """Initialize ASL recognizer with trained model"""
@@ -33,7 +55,14 @@ class ASLRecognizer:
             )
         
         # Load model
-        self.model = tf.keras.models.load_model(self.model_path)
+        self.model = tf.keras.models.load_model(
+            self.model_path,
+            custom_objects={
+                'BatchNormalization': LegacyBatchNormalization,
+                'Dense': LegacyDense,
+            },
+            compile=False,
+        )
         print(f"✓ Model loaded: {self.model_path}")
         
         # Load class indices

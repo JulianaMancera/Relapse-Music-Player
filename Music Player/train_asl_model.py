@@ -11,6 +11,28 @@ from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLRO
 from pathlib import Path
 import json
 
+
+class LegacyBatchNormalization(keras.layers.BatchNormalization):
+    """Compatibility shim for older Keras BatchNormalization configs."""
+
+    @classmethod
+    def from_config(cls, config):
+        config = dict(config)
+        config.pop('renorm', None)
+        config.pop('renorm_clipping', None)
+        config.pop('renorm_momentum', None)
+        return cls(**config)
+
+
+class LegacyDense(keras.layers.Dense):
+    """Compatibility shim for Dense configs saved by newer Keras versions."""
+
+    @classmethod
+    def from_config(cls, config):
+        config = dict(config)
+        config.pop('quantization_config', None)
+        return cls(**config)
+
 class StateCallback(Callback):
     def __init__(self, state_file, phase):
         self.state_file = state_file
@@ -183,7 +205,14 @@ class ASLModelTrainer:
         # Load checkpoint whenever it exists and we have a resume point
         if checkpoint_path.exists() and resume_epoch > 0:
             print(f"✓ Loading checkpoint from best_model.h5")
-            model = keras.models.load_model(checkpoint_path, compile=False)
+            model = keras.models.load_model(
+                checkpoint_path,
+                custom_objects={
+                    'BatchNormalization': LegacyBatchNormalization,
+                    'Dense': LegacyDense,
+                },
+                compile=False,
+            )
             # Recompile with a fresh optimizer — Keras 3 stale optimizer causes
             # "Unknown variable" crash when resuming from .h5 checkpoints
             model.compile(
