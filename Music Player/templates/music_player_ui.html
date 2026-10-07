@@ -146,6 +146,62 @@
         .webcam-container.active {
             display: block;
         }
+
+        .camera-selector {
+            position: fixed;
+            top: 255px;
+            left: 20px;
+            z-index: 15;
+            box-sizing: border-box;
+            width: 300px;
+            padding: 12px;
+            border: 1px solid rgba(163, 228, 215, 0.5);
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.92);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+        }
+
+        .camera-selector-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .camera-selector-header h3 {
+            margin: 0;
+            color: #f0e6d2;
+            font-size: 1.1em;
+            font-weight: 400;
+        }
+
+        .camera-selector .close-camera-selector {
+            width: 36px;
+            min-width: 36px;
+            min-height: 36px;
+            margin: 0;
+            padding: 0;
+        }
+
+        .camera-selector[hidden] {
+            display: none;
+        }
+
+        .camera-selector button,
+        .camera-selector select {
+            box-sizing: border-box;
+            width: 100%;
+            min-height: 38px;
+            margin: 4px 0;
+            padding: 8px 10px;
+        }
+
+        .camera-status {
+            min-height: 1.2em;
+            margin: 4px 0;
+            color: #a3e4d7;
+            font-size: 0.9em;
+        }
         
         .player {
             flex: 2;
@@ -590,6 +646,12 @@
                 height: 168.75px;
             }
 
+            .camera-selector {
+                top: 190px;
+                left: 10px;
+                width: 225px;
+            }
+
             .lyrics-panel {
                 width: 90%;
                 top: 100px;
@@ -616,10 +678,15 @@
             <img src="" id="webcamFeed" alt="Webcam Feed">
         </div>
 
-        <div class="camera-selector" style="position: absolute; top: 20px; right: 20px; z-index: 10; display: none;" id="cameraSelector">
-            <button onclick="loadCameras()" style="padding: 5px 10px; font-size: 0.8em; margin-bottom: 5px;">Detect Cameras</button>
-            <select id="cameraSelect" style="width: 100%; padding: 5px; font-size: 0.8em;"></select>
-            <button onclick="switchCamera()" style="width: 100%; padding: 5px; margin-top: 5px; font-size: 0.8em;">Use Selected</button>
+        <div class="camera-selector" id="cameraSelector" hidden>
+            <div class="camera-selector-header">
+                <h3>Camera setup</h3>
+                <button class="close-camera-selector" onclick="closeCameraSelector()" title="Close camera setup" aria-label="Close camera setup">&times;</button>
+            </div>
+            <button onclick="loadCameras()">Detect Cameras</button>
+            <select id="cameraSelect" aria-label="Select camera" disabled></select>
+            <p class="camera-status" id="cameraStatus" role="status" aria-live="polite"></p>
+            <button id="useCameraButton" onclick="startSelectedCamera()" disabled>Start Camera</button>
         </div>
 
         <div class="player">
@@ -780,72 +847,103 @@
     }
 
     function toggleComputerVision() {
+        const cameraSelector = document.getElementById('cameraSelector');
+        if (!cvEnabled) {
+            cameraSelector.hidden = !cameraSelector.hidden;
+            if (!cameraSelector.hidden) loadCameras();
+            return;
+        }
+
         fetch('/control/toggle_camera', { method: 'POST' })
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'success') {
-                    cvEnabled = data.is_camera_active;
-                    cvBtn.classList.toggle('active', cvEnabled);
-                    appContainer.classList.toggle('cv-enabled', cvEnabled);
-                    webcamContainer.classList.toggle('active', cvEnabled);
-                    webcamFeed.src = cvEnabled ? '/video_feed?' + new Date().getTime() : '';
-                    cvBtn.title = cvEnabled ? 'Disable Computer Vision' : 'Enable Computer Vision';
+                    updateCameraUI(data.is_camera_active);
+                    cameraSelector.hidden = false;
+                    setCameraStatus('Camera stopped. Select a device to start it again.');
                 } else {
                     console.error("Toggle camera failed:", data.message);
-                    cvEnabled = false;
-                    cvBtn.classList.remove('active');
-                    appContainer.classList.remove('cv-enabled');
-                    webcamContainer.classList.remove('active');
-                    webcamFeed.src = '';
-                    cvBtn.title = 'Enable Computer Vision';
+                    setCameraStatus(data.message || 'Could not stop the camera.');
                 }
             })
             .catch(e => {
                 console.error("Toggle camera failed:", e);
-                cvEnabled = false;
-                cvBtn.classList.remove('active');
-                appContainer.classList.remove('cv-enabled');
-                webcamContainer.classList.remove('active');
-                webcamFeed.src = '';
+                setCameraStatus('Could not stop the camera.');
             });
     }
 
+    function updateCameraUI(active) {
+        cvEnabled = active;
+        cvBtn.classList.toggle('active', active);
+        appContainer.classList.toggle('cv-enabled', active);
+        webcamContainer.classList.toggle('active', active);
+        webcamFeed.src = active ? '/video_feed?' + new Date().getTime() : '';
+        cvBtn.title = active ? 'Stop Camera' : 'Open Camera Setup';
+        document.getElementById('useCameraButton').textContent = active ? 'Use Selected Camera' : 'Start Camera';
+    }
+
+    function closeCameraSelector() {
+        document.getElementById('cameraSelector').hidden = true;
+    }
+
+    function setCameraStatus(message) {
+        document.getElementById('cameraStatus').textContent = message;
+    }
+
     async function loadCameras() {
-    const res = await fetch('/api/cameras');
-    const data = await res.json();
-    availableCameras = data.available;
-    currentCamera = data.current;
+        const select = document.getElementById('cameraSelect');
+        const useCameraButton = document.getElementById('useCameraButton');
+        document.getElementById('cameraSelector').hidden = false;
+        select.disabled = true;
+        useCameraButton.disabled = true;
+        setCameraStatus('Searching for cameras...');
 
-    const select = document.getElementById('cameraSelect');
-    select.innerHTML = '';
-    availableCameras.forEach(idx => {
-        const opt = document.createElement('option');
-        opt.value = idx;
-        opt.textContent = `Camera ${idx}${idx === currentCamera ? ' (active)' : ''}`;
-        if (idx === currentCamera) opt.selected = true;
-        select.appendChild(opt);
-    });
+        try {
+            const response = await fetch('/api/cameras');
+            if (!response.ok) throw new Error('Camera search failed');
+            const data = await response.json();
+            availableCameras = data.available;
+            currentCamera = data.current;
+            select.innerHTML = '';
 
-    document.getElementById('cameraSelector').style.display = 'block';
-}
+            availableCameras.forEach(idx => {
+                const option = document.createElement('option');
+                option.value = idx;
+                const label = cvEnabled ? ' (active)' : ' (selected)';
+                option.textContent = `Camera ${idx}${idx === currentCamera ? label : ''}`;
+                option.selected = idx === currentCamera;
+                select.appendChild(option);
+            });
 
-async function switchCamera() {
-    const idx = document.getElementById('cameraSelect').value;
-    await fetch(`/control/camera/${idx}`, { method: 'POST' });
-    loadCameras();
-    alert(`Switched to Camera ${idx}`);
-}
-
-// Show selector when CV is enabled
-document.getElementById('cvBtn').addEventListener('click', () => {
-    setTimeout(() => {
-        if (cvEnabled) {
-            loadCameras();
-        } else {
-            document.getElementById('cameraSelector').style.display = 'none';
+            select.disabled = availableCameras.length === 0;
+            useCameraButton.disabled = availableCameras.length === 0;
+            setCameraStatus(availableCameras.length ? 'Select a device before starting the camera.' : 'No cameras found.');
+        } catch (error) {
+            setCameraStatus('Could not detect cameras. Try again.');
+            console.error('Camera detection failed:', error);
         }
-    }, 300);
-});
+    }
+
+    async function startSelectedCamera() {
+        const idx = document.getElementById('cameraSelect').value;
+        const useCameraButton = document.getElementById('useCameraButton');
+        useCameraButton.disabled = true;
+        setCameraStatus(`Starting Camera ${idx}...`);
+
+        try {
+            const response = await fetch(`/control/camera/${idx}`, { method: 'POST' });
+            if (!response.ok) throw new Error('Camera start failed');
+            const data = await response.json();
+            currentCamera = Number(idx);
+            updateCameraUI(data.is_camera_active);
+            setCameraStatus(`Camera ${idx} is active.`);
+        } catch (error) {
+            setCameraStatus(`Could not start Camera ${idx}.`);
+            console.error('Camera start failed:', error);
+        } finally {
+            useCameraButton.disabled = document.getElementById('cameraSelect').disabled;
+        }
+    }
 
     function muteToggle() {
         const newVolume = parseFloat(volume.value) > 0 ? 0 : previousVolume;

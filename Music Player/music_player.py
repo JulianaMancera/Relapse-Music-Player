@@ -36,7 +36,6 @@ app = Flask(__name__,
 )
 song_durations = {}
 song_metadata = {}
-rickroll_triggered = False
 
 # PLAYLIST
 def load_playlist():
@@ -82,10 +81,13 @@ pygame.mixer.music.set_volume(0.5)
 current_index = 0
 current_position = 0
 is_camera_active = False
+rickroll_triggered = False
+middle_finger_started_at = None
 last_gesture_time = 0
 gesture_cooldown = 1.0
 current_gesture = None
 current_volume = 0.5
+current_camera_index = -1
 cap = None
 
 # ASL RECOGNIZER (ML-based)
@@ -125,23 +127,21 @@ logging.basicConfig(filename='gesture_log.txt', level=logging.INFO,
 
 # CAMERA
 def open_camera():
-    global cap
+    global cap, current_camera_index
     if cap and cap.isOpened():
         cap.release()
-    idx = 0
+    backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
     for i in range(10):
-        backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
-        temp = cv2.VideoCapture(i, backend)
-        if temp.isOpened():
-            idx = i
-            temp.release()
-            break
-    cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY)
-    if cap.isOpened():
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
-        cap.set(cv2.CAP_PROP_FPS, 30)
-        return True
+        cap = cv2.VideoCapture(i, backend)
+        if cap.isOpened():
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+            cap.set(cv2.CAP_PROP_FPS, 30)
+            current_camera_index = i
+            return True
+        cap.release()
+        cap = None
+    current_camera_index = -1
     return False
 
 def close_camera():
@@ -149,6 +149,61 @@ def close_camera():
     if cap and cap.isOpened():
         cap.release()
         cap = None
+
+def crop_hand_region(frame, hand_landmarks, padding=1.4):
+    height, width = frame.shape[:2]
+    x_coordinates = [point.x for point in hand_landmarks.landmark]
+    y_coordinates = [point.y for point in hand_landmarks.landmark]
+    x_min = int(min(x_coordinates) * width)
+    x_max = int(max(x_coordinates) * width)
+    y_min = int(min(y_coordinates) * height)
+    y_max = int(max(y_coordinates) * height)
+
+    side = max(1, int(max(x_max - x_min, y_max - y_min) * padding))
+    center_x = (x_min + x_max) // 2
+    center_y = (y_min + y_max) // 2
+    left = center_x - side // 2
+    top = center_y - side // 2
+    right = left + side
+    bottom = top + side
+
+    crop = frame[max(0, top):min(height, bottom), max(0, left):min(width, right)]
+    if crop.size == 0:
+        return crop
+
+    return cv2.copyMakeBorder(
+        crop,
+        max(0, -top),
+        max(0, bottom - height),
+        max(0, -left),
+        max(0, right - width),
+        cv2.BORDER_REPLICATE,
+    )
+
+def accept_asl_letter(letter, state, stable_frames=4, release_frames=5):
+    if letter is None or letter not in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+        state['candidate'] = None
+        state['candidate_frames'] = 0
+        state['release_frames'] += 1
+        if state['release_frames'] >= release_frames:
+            state['armed'] = True
+        return False
+
+    state['release_frames'] = 0
+    if letter == state['candidate']:
+        state['candidate_frames'] += 1
+    else:
+        state['candidate'] = letter
+        state['candidate_frames'] = 1
+
+    if state['candidate_frames'] < stable_frames:
+        return False
+    if not state['armed'] and letter == state['last_committed']:
+        return False
+
+    state['last_committed'] = letter
+    state['armed'] = False
+    return True
 
 # IMPROVED ASL LETTER RECOGNITION
 def recognize_asl_letter(landmarks):
@@ -291,11 +346,8 @@ def recognize_asl_letter(landmarks):
 
 # GESTURE RECOGNITION
 def recognize_gesture(landmarks):
-    global last_gesture_time, current_gesture, rickroll_triggered
+    global last_gesture_time, current_gesture, middle_finger_started_at, rickroll_triggered
     now = time.time()
-    if now - last_gesture_time < gesture_cooldown:
-        return None
-
     tip = lambda i: landmarks.landmark[i]
     wrist = tip(0)
 
@@ -317,14 +369,31 @@ def recognize_gesture(landmarks):
     ring_extended    = tip(16).y < tip(14).y - 0.05
     pinky_extended   = tip(20).y < tip(18).y - 0.05
 
-    if (middle_extended and not index_extended and not ring_extended and not pinky_extended
-        and tip(12).y < tip(0).y - 0.1 and not rickroll_triggered):
+    middle_finger_pose = (
+        middle_extended
+        and not index_extended
+        and not ring_extended
+        and not pinky_extended
+    )
+    if middle_finger_pose:
+        if middle_finger_started_at is None:
+            middle_finger_started_at = now
+        if not rickroll_triggered:
+            if now - middle_finger_started_at >= 1.25:
+                rickroll_triggered = True
+                last_gesture_time = now
+                current_gesture = "rickroll"
+                log_gesture("MIDDLE FINGER HELD -> RICKROLL")
+                return "rickroll"
+            current_gesture = "rickroll_hold"
+            return None
+    else:
+        middle_finger_started_at = None
+        if current_gesture == "rickroll_hold":
+            current_gesture = None
 
-        rickroll_triggered = True
-        last_gesture_time = now
-        current_gesture = "rickroll"
-        log_gesture("MIDDLE FINGER → RICKROLL")
-        return "rickroll"
+    if now - last_gesture_time < gesture_cooldown:
+        return None
 
     # HAND GESTURES
     extended_count = sum(1 for i in [8, 12, 16, 20] if tip(i).y < tip(i-2).y - 0.04)
@@ -354,9 +423,11 @@ def recognize_gesture(landmarks):
         current_gesture = "previous"
         return "previous"
 
-    # Open hand (all 4 fingers extended + thumb) = play
-    thumb_ext = tip(4).x < tip(3).x - 0.04 if tip(0).x < tip(9).x else tip(4).x > tip(3).x + 0.04
-    if extended_count >= 4 and thumb_ext:
+    # Open hand (all 4 fingers extended and thumb separated from index) = play
+    thumb_to_index = np.hypot(tip(4).x - tip(5).x, tip(4).y - tip(5).y)
+    palm_width = np.hypot(tip(5).x - tip(17).x, tip(5).y - tip(17).y)
+    thumb_open = thumb_to_index > max(0.08, palm_width * 0.6)
+    if extended_count >= 4 and thumb_open:
         last_gesture_time = now
         current_gesture = "play"
         return "play"
@@ -403,11 +474,18 @@ def perform_search(buffer):
 def generate_video_feed():
     global is_camera_active, cap, current_gesture, rickroll_triggered
     global search_mode, search_buffer, last_search_time, last_letter_time
+    asl_letter_state = {
+        'candidate': None,
+        'candidate_frames': 0,
+        'last_committed': None,
+        'release_frames': 5,
+        'armed': True,
+    }
 
     while True:
         if rickroll_triggered and not is_camera_active:
             frame = np.zeros((240, 320, 3), np.uint8)
-            cv2.putText(frame, "RICKROLLED!", (20, 90),  cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 0, 255), 4)
+            cv2.putText(frame, "RICKROLLED!", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 1.3, (0, 0, 255), 4)
             cv2.putText(frame, "Never Gonna Give You Up", (10, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 255), 2)
             cv2.putText(frame, "Click to re-enable camera", (25, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
             _, buf = cv2.imencode('.jpg', frame)
@@ -444,25 +522,24 @@ def generate_video_feed():
 
             if gesture == "toggle_search":
                 handle_gesture(gesture)
+                asl_letter_state.update({
+                    'candidate': None,
+                    'candidate_frames': 0,
+                    'last_committed': None,
+                    'release_frames': 5,
+                    'armed': True,
+                })
             elif search_mode:
                 # In search mode: collect ASL letters only, ignore control gestures
                 asl_letter = None
                 if ML_ASL_AVAILABLE and asl_recognizer:
                     try:
-                        h, w = frame.shape[:2]
-                        x_coords = [lm.x for lm in hand.landmark]
-                        y_coords = [lm.y for lm in hand.landmark]
-                        padding = 0.2
-                        x_min = max(0, int((min(x_coords) - padding) * w))
-                        x_max = min(w, int((max(x_coords) + padding) * w))
-                        y_min = max(0, int((min(y_coords) - padding) * h))
-                        y_max = min(h, int((max(y_coords) + padding) * h))
-                        hand_region = frame[y_min:y_max, x_min:x_max]
+                        hand_region = crop_hand_region(frame, hand)
                         asl_letter = asl_recognizer.recognize(hand_region)
                     except Exception:
                         pass
 
-                if asl_letter and now - last_letter_time > letter_cooldown:
+                if accept_asl_letter(asl_letter, asl_letter_state):
                     search_buffer += asl_letter
                     last_search_time = now
                     last_letter_time = now
@@ -474,6 +551,9 @@ def generate_video_feed():
                 # In control mode: process control gestures only
                 if gesture:
                     handle_gesture(gesture)
+
+        elif search_mode:
+            accept_asl_letter(None, asl_letter_state)
 
         # Overlays
         if search_mode:
@@ -585,12 +665,15 @@ def video_feed():
 @app.route('/control/toggle_camera', methods=['POST'])
 def control_toggle_camera():
     global is_camera_active
-    is_camera_active = not is_camera_active
     if is_camera_active:
-        open_camera()
-    else:
+        is_camera_active = False
         close_camera()
-    return jsonify({'status': 'success', 'is_camera_active': is_camera_active})
+        return jsonify({'status': 'success', 'is_camera_active': False})
+
+    if not open_camera():
+        return jsonify({'status': 'error', 'message': 'No camera is available'}), 503
+    is_camera_active = True
+    return jsonify({'status': 'success', 'is_camera_active': True})
 
 @app.route('/control/search_mode/<action>', methods=['POST'])
 def control_search_mode(action):
@@ -658,11 +741,11 @@ def api_cameras():
         if temp.isOpened():
             available.append(i)
             temp.release()
-    return jsonify({'available': available, 'current': 0 if cap and cap.isOpened() else -1})
+    return jsonify({'available': available, 'current': current_camera_index})
 
 @app.route('/control/camera/<int:index>', methods=['POST'])
 def control_camera(index):
-    global cap
+    global cap, current_camera_index, is_camera_active
     if cap and cap.isOpened():
         cap.release()
     backend = cv2.CAP_DSHOW if os.name == 'nt' else cv2.CAP_ANY
@@ -671,7 +754,12 @@ def control_camera(index):
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
         cap.set(cv2.CAP_PROP_FPS, 30)
-        return jsonify({'status': 'success', 'camera': index})
+        current_camera_index = index
+        is_camera_active = True
+        return jsonify({'status': 'success', 'camera': index, 'is_camera_active': True})
+    cap.release()
+    cap = None
+    is_camera_active = False
     return jsonify({'status': 'error', 'message': f'Camera {index} not available'}), 400
 
 @app.route('/api/state')
@@ -693,8 +781,9 @@ def get_state():
 
 @app.route('/reset_rickroll')
 def reset_rickroll():
-    global rickroll_triggered
+    global rickroll_triggered, middle_finger_started_at
     rickroll_triggered = False
+    middle_finger_started_at = None
     return "<h1>RICKROLL RE-ARMED</h1><p>Ready for next victim</p>"
 
 # LYRICS FINDER

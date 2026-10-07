@@ -73,9 +73,9 @@ class ASLRecognizer:
         print(f"✓ Classes loaded: {sorted(self.classes.values())}")
     
     def preprocess_frame(self, frame):
-        """Preprocess frame for model prediction"""
-        # Resize
-        resized = cv2.resize(frame, (self.img_size, self.img_size))
+        """Preprocess an OpenCV BGR frame for model prediction."""
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        resized = cv2.resize(rgb_frame, (self.img_size, self.img_size))
         
         # Normalize
         normalized = resized / 255.0
