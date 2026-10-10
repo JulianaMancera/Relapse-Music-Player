@@ -356,12 +356,8 @@ def recognize_gesture(landmarks):
     ring_curled = tip(16).y > tip(14).y + 0.02
     pinky_curled = tip(20).y > tip(18).y + 0.02
 
-    # Thumbs up: thumb tip clearly above its IP joint, all fingers curled
+    # Thumbs up: thumb tip clearly above its IP joint and away from the palm.
     thumb_up = tip(4).y < tip(3).y - 0.06
-    if thumb_up and index_curled and middle_curled and ring_curled and pinky_curled:
-        last_gesture_time = now
-        current_gesture = "toggle_search"
-        return "toggle_search"
 
     # Finger states
     index_extended   = tip(8).y  < tip(6).y  - 0.05
@@ -398,6 +394,20 @@ def recognize_gesture(landmarks):
     # HAND GESTURES
     extended_count = sum(1 for i in [8, 12, 16, 20] if tip(i).y < tip(i-2).y - 0.04)
 
+    # Closed fist with thumb down / across = pause (priority must win above search toggle)
+    if extended_count == 0 and index_curled and middle_curled and ring_curled and pinky_curled and not thumb_up:
+        last_gesture_time = now
+        current_gesture = "pause"
+        return "pause"
+
+    # Search toggle is a clear thumbs-up pose, not a pause-like fist.
+    thumb_offset = abs(tip(4).x - tip(3).x)
+    clear_thumb_up = thumb_up and thumb_offset > 0.05
+    if clear_thumb_up and index_curled and middle_curled and ring_curled and pinky_curled:
+        last_gesture_time = now
+        current_gesture = "toggle_search"
+        return "toggle_search"
+
     index_ext  = tip(8).y  < tip(6).y  - 0.06
     middle_ext = tip(12).y < tip(10).y - 0.06
     ring_ext   = tip(16).y < tip(14).y - 0.06
@@ -431,12 +441,6 @@ def recognize_gesture(landmarks):
         last_gesture_time = now
         current_gesture = "play"
         return "play"
-
-    # Closed fist with thumb down / across = pause (thumb NOT pointing up)
-    if extended_count == 0 and index_curled and middle_curled and ring_curled and pinky_curled and not thumb_up:
-        last_gesture_time = now
-        current_gesture = "pause"
-        return "pause"
 
     current_gesture = None
     return None
