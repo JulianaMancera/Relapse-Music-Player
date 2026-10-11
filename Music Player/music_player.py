@@ -598,8 +598,8 @@ def handle_gesture(gesture):
         log_gesture("RICKROLL EXECUTED")
         return
 
-    if gesture == "play" and not pygame.mixer.music.get_busy():
-        play_song()
+    if gesture == "play":
+        resume_or_play_song()
     elif gesture == "pause":
         pygame.mixer.music.pause()
     elif gesture == "next":
@@ -612,6 +612,22 @@ def handle_gesture(gesture):
     elif gesture == "volume_down":
         current_volume = max(0.0, current_volume - 0.06)
         pygame.mixer.music.set_volume(current_volume)
+
+def resume_or_play_song():
+    if not playlist:
+        return
+
+    try:
+        pos = pygame.mixer.music.get_pos()
+    except Exception:
+        pos = -1
+
+    if pygame.mixer.music.get_busy() or pos >= 0:
+        pygame.mixer.music.unpause()
+        return
+
+    play_song()
+
 
 def play_song():
     global current_index, current_position
@@ -691,10 +707,8 @@ def control_search_mode(action):
 
 @app.route('/control/play', methods=['POST'])
 def control_play():
-    if playlist and not pygame.mixer.music.get_busy():
-        pygame.mixer.music.unpause()
-        if not pygame.mixer.music.get_busy():
-            play_song()
+    if playlist:
+        resume_or_play_song()
     return jsonify({'status': 'success'})
 
 @app.route('/control/pause', methods=['POST'])

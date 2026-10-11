@@ -135,6 +135,43 @@ class GestureDetectionTests(unittest.TestCase):
 
         self.assertEqual(music_player.recognize_gesture(hand), 'pause')
 
+    def test_play_gesture_resumes_paused_track(self):
+        calls = []
+        music_player.playlist = ['song.mp3']
+        music_player.current_index = 0
+        music_player.current_position = 5000
+
+        original_busy = music_player.pygame.mixer.music.get_busy
+        original_pos = music_player.pygame.mixer.music.get_pos
+        original_unpause = music_player.pygame.mixer.music.unpause
+        original_play = music_player.play_song
+
+        def fake_busy():
+            return False
+
+        def fake_pos():
+            return 1234
+
+        def fake_unpause():
+            calls.append('unpause')
+
+        def fake_play():
+            calls.append('play_song')
+
+        music_player.pygame.mixer.music.get_busy = fake_busy
+        music_player.pygame.mixer.music.get_pos = fake_pos
+        music_player.pygame.mixer.music.unpause = fake_unpause
+        music_player.play_song = fake_play
+
+        try:
+            music_player.resume_or_play_song()
+            self.assertEqual(calls, ['unpause'])
+        finally:
+            music_player.pygame.mixer.music.get_busy = original_busy
+            music_player.pygame.mixer.music.get_pos = original_pos
+            music_player.pygame.mixer.music.unpause = original_unpause
+            music_player.play_song = original_play
+
 
 if __name__ == '__main__':
     unittest.main()
