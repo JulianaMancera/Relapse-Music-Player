@@ -134,31 +134,121 @@
             position: fixed;
             top: 20px;
             left: 20px;
-            width: 300px;
-            height: 225px;
-            border: 2px solid #a3e4d7;
-            border-radius: 10px;
+            width: min(320px, calc(100vw - 32px));
+            aspect-ratio: 16 / 9;
+            border: 1px solid rgba(163, 228, 215, 0.65);
+            border-radius: 8px;
             overflow: hidden;
             display: none;
-            z-index: 5;
+            z-index: 15;
+            background: #101413;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
         }
         
         .webcam-container.active {
             display: block;
         }
 
+        .webcam-container img {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .camera-feed-toolbar {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            right: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            pointer-events: none;
+        }
+
+        .camera-live-status,
+        .camera-settings-button {
+            min-height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 4px;
+            background: rgba(10, 16, 14, 0.82);
+            color: #f0e6d2;
+            font-size: 0.78em;
+            pointer-events: auto;
+        }
+
+        .camera-live-status {
+            padding: 0 10px;
+        }
+
+        .camera-live-status i {
+            color: #f0a36b;
+            font-size: 0.7em;
+        }
+
+        .camera-live-status.active i {
+            color: #a3e4d7;
+        }
+
+        .camera-settings-button {
+            width: 34px;
+            padding: 0;
+            cursor: pointer;
+        }
+
+        .camera-settings-button:hover,
+        .camera-settings-button:focus-visible {
+            color: #a3e4d7;
+            border-color: #a3e4d7;
+        }
+
+        .camera-feed-message {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 42px 20px 16px;
+            color: rgba(240, 230, 210, 0.76);
+            text-align: center;
+            font-size: 0.88em;
+            pointer-events: none;
+        }
+
+        .camera-feed-message i {
+            color: #a3e4d7;
+            font-size: 1.5em;
+        }
+
+        .webcam-container.active .camera-feed-message {
+            display: flex;
+        }
+
+        .webcam-container.stream-ready .camera-feed-message {
+            display: none;
+        }
+
         .camera-selector {
             position: fixed;
-            top: 255px;
+            top: 20px;
             left: 20px;
-            z-index: 15;
+            z-index: 20;
             box-sizing: border-box;
-            width: 300px;
-            padding: 12px;
-            border: 1px solid rgba(163, 228, 215, 0.5);
-            border-radius: 10px;
-            background: rgba(0, 0, 0, 0.92);
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+            width: min(300px, calc(100vw - 24px));
+            max-height: calc(100vh - 24px);
+            padding: 14px;
+            border: 1px solid rgba(163, 228, 215, 0.35);
+            border-radius: 8px;
+            background: rgba(14, 19, 18, 0.97);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+            overflow-y: auto;
         }
 
         .camera-selector-header {
@@ -171,8 +261,8 @@
         .camera-selector-header h3 {
             margin: 0;
             color: #f0e6d2;
-            font-size: 1.1em;
-            font-weight: 400;
+            font-size: 1em;
+            font-weight: 500;
         }
 
         .camera-selector .close-camera-selector {
@@ -191,16 +281,42 @@
         .camera-selector select {
             box-sizing: border-box;
             width: 100%;
-            min-height: 38px;
-            margin: 4px 0;
-            padding: 8px 10px;
+            min-height: 40px;
+            margin: 5px 0;
+            padding: 9px 11px;
+            border: 1px solid rgba(163, 228, 215, 0.32);
+            border-radius: 4px;
+            background: rgba(240, 230, 210, 0.08);
+            color: #f0e6d2;
+            font: inherit;
+        }
+
+        .camera-selector button {
+            cursor: pointer;
+        }
+
+        .camera-selector button:hover:not(:disabled),
+        .camera-selector button:focus-visible {
+            border-color: #a3e4d7;
+            background: rgba(163, 228, 215, 0.14);
+        }
+
+        .camera-selector button:disabled {
+            cursor: not-allowed;
+            opacity: 0.48;
+        }
+
+        .camera-selector select option {
+            background: #101413;
+            color: #f0e6d2;
         }
 
         .camera-status {
             min-height: 1.2em;
-            margin: 4px 0;
-            color: #a3e4d7;
+            margin: 8px 0;
+            color: rgba(240, 230, 210, 0.74);
             font-size: 0.9em;
+            line-height: 1.4;
         }
         
         .player {
@@ -642,14 +758,11 @@
             .webcam-container {
                 top: 10px;
                 left: 10px;
-                width: 225px;
-                height: 168.75px;
+                width: min(320px, calc(100vw - 20px));
             }
 
             .camera-selector {
-                top: 190px;
-                left: 10px;
-                width: 225px;
+                width: min(300px, calc(100vw - 24px));
             }
 
             .lyrics-panel {
@@ -670,12 +783,25 @@
             <i class="fas fa-list"></i>
         </button>
         
-        <button class="toggle-cv-btn" onclick="toggleComputerVision()" title="Toggle Computer Vision" id="cvBtn">
+        <button class="toggle-cv-btn" onclick="toggleComputerVision()" title="Toggle Computer Vision" id="cvBtn" aria-controls="cameraSelector" aria-expanded="false">
             <i class="fas fa-camera"></i>
         </button>
         
         <div class="webcam-container" id="webcamContainer">
             <img src="" id="webcamFeed" alt="Webcam Feed">
+            <div class="camera-feed-toolbar">
+                <span class="camera-live-status" id="cameraLiveStatus" aria-live="polite">
+                    <i class="fas fa-circle" aria-hidden="true"></i>
+                    <span id="cameraLiveLabel">Camera off</span>
+                </span>
+                <button class="camera-settings-button" onclick="openCameraSelector()" title="Camera settings" aria-label="Camera settings" aria-controls="cameraSelector" aria-expanded="false">
+                    <i class="fas fa-sliders" aria-hidden="true"></i>
+                </button>
+            </div>
+            <div class="camera-feed-message" id="cameraFeedMessage">
+                <i class="fas fa-camera" aria-hidden="true"></i>
+                <span id="cameraFeedMessageLabel">Camera preview is off</span>
+            </div>
         </div>
 
         <div class="camera-selector" id="cameraSelector" hidden>
@@ -683,10 +809,10 @@
                 <h3>Camera setup</h3>
                 <button class="close-camera-selector" onclick="closeCameraSelector()" title="Close camera setup" aria-label="Close camera setup">&times;</button>
             </div>
-            <button onclick="loadCameras()">Detect Cameras</button>
+            <button onclick="loadCameras()"><i class="fas fa-rotate" aria-hidden="true"></i> Detect cameras</button>
             <select id="cameraSelect" aria-label="Select camera" disabled></select>
             <p class="camera-status" id="cameraStatus" role="status" aria-live="polite"></p>
-            <button id="useCameraButton" onclick="startSelectedCamera()" disabled>Start Camera</button>
+            <button id="useCameraButton" onclick="startSelectedCamera()" disabled><i class="fas fa-video" aria-hidden="true"></i> <span id="cameraActionLabel">Start camera</span></button>
         </div>
 
         <div class="player">
@@ -773,6 +899,10 @@
     const cvBtn = document.getElementById('cvBtn');
     const webcamContainer = document.getElementById('webcamContainer');
     const webcamFeed = document.getElementById('webcamFeed');
+    const cameraLiveStatus = document.getElementById('cameraLiveStatus');
+    const cameraLiveLabel = document.getElementById('cameraLiveLabel');
+    const cameraFeedMessageLabel = document.getElementById('cameraFeedMessageLabel');
+    const cameraActionLabel = document.getElementById('cameraActionLabel');
     const lyricsPanel = document.getElementById('lyricsPanel');
     const lyricsContent = document.getElementById('lyrics-content');
 
@@ -847,10 +977,8 @@
     }
 
     function toggleComputerVision() {
-        const cameraSelector = document.getElementById('cameraSelector');
         if (!cvEnabled) {
-            cameraSelector.hidden = !cameraSelector.hidden;
-            if (!cameraSelector.hidden) loadCameras();
+            openCameraSelector();
             return;
         }
 
@@ -859,7 +987,7 @@
             .then(data => {
                 if (data.status === 'success') {
                     updateCameraUI(data.is_camera_active);
-                    cameraSelector.hidden = false;
+                    openCameraSelector();
                     setCameraStatus('Camera stopped. Select a device to start it again.');
                 } else {
                     console.error("Toggle camera failed:", data.message);
@@ -877,13 +1005,77 @@
         cvBtn.classList.toggle('active', active);
         appContainer.classList.toggle('cv-enabled', active);
         webcamContainer.classList.toggle('active', active);
+        webcamContainer.classList.remove('stream-ready');
+        cameraLiveStatus.classList.toggle('active', active);
+        cameraLiveLabel.textContent = active ? 'Connecting...' : 'Camera off';
+        cameraFeedMessageLabel.textContent = active ? 'Connecting to camera...' : 'Camera preview is off';
         webcamFeed.src = active ? '/video_feed?' + new Date().getTime() : '';
         cvBtn.title = active ? 'Stop Camera' : 'Open Camera Setup';
-        document.getElementById('useCameraButton').textContent = active ? 'Use Selected Camera' : 'Start Camera';
+        cameraActionLabel.textContent = active ? 'Switch camera' : 'Start camera';
     }
+
+    webcamFeed.addEventListener('load', () => {
+        if (!cvEnabled) return;
+        webcamContainer.classList.add('stream-ready');
+        cameraLiveLabel.textContent = 'Camera live';
+    });
+
+    webcamFeed.addEventListener('error', () => {
+        if (!cvEnabled) return;
+        webcamContainer.classList.remove('stream-ready');
+        cameraLiveLabel.textContent = 'Feed unavailable';
+        cameraFeedMessageLabel.textContent = 'Preview unavailable. Reopen camera setup to retry.';
+    });
+
+    function openCameraSelector() {
+        const cameraSelector = document.getElementById('cameraSelector');
+        cameraSelector.hidden = false;
+        cvBtn.setAttribute('aria-expanded', 'true');
+        document.querySelector('.camera-settings-button').setAttribute('aria-expanded', 'true');
+        positionCameraSelector();
+        loadCameras();
+    }
+
+    function positionCameraSelector() {
+        const cameraSelector = document.getElementById('cameraSelector');
+        if (cameraSelector.hidden) return;
+
+        const buttonBounds = cvBtn.getBoundingClientRect();
+        const panelWidth = cameraSelector.offsetWidth;
+        const panelHeight = cameraSelector.offsetHeight;
+        const margin = 12;
+        const left = Math.max(margin, Math.min(
+            buttonBounds.left + (buttonBounds.width - panelWidth) / 2,
+            window.innerWidth - panelWidth - margin
+        ));
+        let top = buttonBounds.bottom + 8;
+        if (top + panelHeight > window.innerHeight - margin) {
+            top = Math.max(margin, buttonBounds.top - panelHeight - 8);
+        }
+
+        cameraSelector.style.left = `${left}px`;
+        cameraSelector.style.top = `${top}px`;
+    }
+
+    window.addEventListener('resize', positionCameraSelector);
+
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') closeCameraSelector();
+    });
+
+    document.addEventListener('click', event => {
+        const cameraSelector = document.getElementById('cameraSelector');
+        const settingsButton = document.querySelector('.camera-settings-button');
+        if (!cameraSelector.hidden && !cameraSelector.contains(event.target)
+            && !cvBtn.contains(event.target) && !settingsButton.contains(event.target)) {
+            closeCameraSelector();
+        }
+    });
 
     function closeCameraSelector() {
         document.getElementById('cameraSelector').hidden = true;
+        cvBtn.setAttribute('aria-expanded', 'false');
+        document.querySelector('.camera-settings-button').setAttribute('aria-expanded', 'false');
     }
 
     function setCameraStatus(message) {
@@ -917,7 +1109,8 @@
 
             select.disabled = availableCameras.length === 0;
             useCameraButton.disabled = availableCameras.length === 0;
-            setCameraStatus(availableCameras.length ? 'Select a device before starting the camera.' : 'No cameras found.');
+            cameraActionLabel.textContent = cvEnabled ? 'Switch camera' : 'Start camera';
+            setCameraStatus(availableCameras.length ? 'Choose a device, then start the preview.' : 'No cameras found. Check that a camera is connected.');
         } catch (error) {
             setCameraStatus('Could not detect cameras. Try again.');
             console.error('Camera detection failed:', error);
@@ -1088,21 +1281,14 @@
 
     let aslSearchActive = false;
 
-    searchInput.addEventListener('focus', () => {
-        aslSearchActive = true;
-        fetch('/control/search_mode/on', { method: 'POST' });
-        searchInput.placeholder = 'Show ASL letters to the camera...';
-        searchInput.style.borderColor = '#00c8ff';
-        searchInput.style.boxShadow = '0 0 12px rgba(0, 200, 255, 0.5)';
-    });
-
-    searchInput.addEventListener('blur', () => {
-        aslSearchActive = false;
-        fetch('/control/search_mode/off', { method: 'POST' });
-        searchInput.placeholder = 'Search songs... (or use ASL 👍)';
-        searchInput.style.borderColor = '';
-        searchInput.style.boxShadow = '';
-    });
+    function setASLSearchActive(active) {
+        aslSearchActive = active;
+        searchInput.placeholder = active
+            ? 'Show ASL letters to the camera...'
+            : 'Search songs... (or use ASL 👍)';
+        searchInput.style.borderColor = active ? '#00c8ff' : '';
+        searchInput.style.boxShadow = active ? '0 0 12px rgba(0, 200, 255, 0.5)' : '';
+    }
 
     searchInput.addEventListener('input', () => {
         if (aslSearchActive) return; // let ASL control the input
@@ -1177,7 +1363,10 @@
                         volumeDisplay.textContent = `${Math.round(data.volume * 100)}%`;
                     }
 
-                    // Mirror ASL search buffer into the input field
+                    // Mirror ASL letters only when gesture control enabled search mode.
+                    if (data.search_mode && !aslSearchActive) {
+                        setASLSearchActive(true);
+                    }
                     if (aslSearchActive && data.search_mode) {
                         const buf = data.search_buffer || '';
                         searchInput.value = buf;
@@ -1198,11 +1387,8 @@
 
                     // If search mode ended server-side (search executed), clear and blur
                     if (aslSearchActive && !data.search_mode) {
-                        aslSearchActive = false;
+                        setASLSearchActive(false);
                         searchInput.value = '';
-                        searchInput.placeholder = 'Search songs... (or use ASL 👍)';
-                        searchInput.style.borderColor = '';
-                        searchInput.style.boxShadow = '';
                         searchInput.blur();
                         filteredPlaylist = [...playlist];
                     }

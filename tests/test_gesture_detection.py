@@ -2,6 +2,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 # Stub the TensorFlow modules that are imported by the ASL recognizer so the app can
 # be imported for gesture-level tests even without an ML environment installed.
@@ -76,6 +77,37 @@ def build_hand(thumb_tip, thumb_ip, finger_tips, finger_pips, wrist=(0.5, 0.9, 0
     for index, point in coord_map.items():
         coords[index] = FakeLandmark(*point)
     return FakeHand([(lm.x, lm.y, lm.z) for lm in coords])
+
+
+def build_two_finger_hand(wrist_x):
+    hand = build_hand(
+        thumb_tip=(0.38, 0.70, 0.0),
+        thumb_ip=(0.42, 0.67, 0.0),
+        finger_tips={
+            'index_tip': (0.50, 0.44, 0.0),
+            'middle_tip': (0.60, 0.42, 0.0),
+            'ring_tip': (0.68, 0.83, 0.0),
+            'pinky_tip': (0.74, 0.84, 0.0),
+        },
+        finger_pips={
+            'index_mcp': (0.50, 0.70, 0.0),
+            'index_pip': (0.50, 0.58, 0.0),
+            'index_dip': (0.50, 0.63, 0.0),
+            'middle_mcp': (0.60, 0.71, 0.0),
+            'middle_pip': (0.60, 0.57, 0.0),
+            'middle_dip': (0.60, 0.64, 0.0),
+            'ring_mcp': (0.68, 0.72, 0.0),
+            'ring_pip': (0.68, 0.62, 0.0),
+            'ring_dip': (0.68, 0.76, 0.0),
+            'pinky_mcp': (0.74, 0.73, 0.0),
+            'pinky_pip': (0.74, 0.63, 0.0),
+            'pinky_dip': (0.74, 0.77, 0.0),
+        },
+    )
+    offset = wrist_x - 0.5
+    for landmark in hand.landmark:
+        landmark.x += offset
+    return hand
 
 
 class GestureDetectionTests(unittest.TestCase):
@@ -171,6 +203,32 @@ class GestureDetectionTests(unittest.TestCase):
             music_player.pygame.mixer.music.get_pos = original_pos
             music_player.pygame.mixer.music.unpause = original_unpause
             music_player.play_song = original_play
+
+    def test_two_finger_skip_requires_a_swipe(self):
+        music_player.last_gesture_time = 0
+        music_player.middle_finger_started_at = None
+        music_player.rickroll_triggered = False
+        music_player.swipe_start_x = None
+        music_player.swipe_started_at = None
+        music_player.swipe_armed = True
+        times = [100.0, 100.2, 100.4]
+
+        with patch.object(music_player.time, 'time', side_effect=times):
+            self.assertIsNone(music_player.recognize_gesture(build_two_finger_hand(0.5)))
+            self.assertIsNone(music_player.recognize_gesture(build_two_finger_hand(0.5)))
+            self.assertEqual(music_player.recognize_gesture(build_two_finger_hand(0.75)), 'next')
+
+    def test_left_two_finger_swipe_goes_to_previous(self):
+        music_player.last_gesture_time = 0
+        music_player.middle_finger_started_at = None
+        music_player.rickroll_triggered = False
+        music_player.swipe_start_x = None
+        music_player.swipe_started_at = None
+        music_player.swipe_armed = True
+
+        with patch.object(music_player.time, 'time', side_effect=[200.0, 200.2]):
+            self.assertIsNone(music_player.recognize_gesture(build_two_finger_hand(0.75)))
+            self.assertEqual(music_player.recognize_gesture(build_two_finger_hand(0.5)), 'previous')
 
 
 if __name__ == '__main__':

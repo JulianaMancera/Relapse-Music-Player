@@ -88,6 +88,9 @@ gesture_cooldown = 1.0
 current_gesture = None
 current_volume = 0.5
 current_camera_index = -1
+swipe_start_x = None
+swipe_started_at = None
+swipe_armed = True
 cap = None
 
 # ASL RECOGNIZER (ML-based)
@@ -347,6 +350,7 @@ def recognize_asl_letter(landmarks):
 # GESTURE RECOGNITION
 def recognize_gesture(landmarks):
     global last_gesture_time, current_gesture, middle_finger_started_at, rickroll_triggered
+    global swipe_start_x, swipe_started_at, swipe_armed
     now = time.time()
     tip = lambda i: landmarks.landmark[i]
     wrist = tip(0)
@@ -388,11 +392,16 @@ def recognize_gesture(landmarks):
         if current_gesture == "rickroll_hold":
             current_gesture = None
 
+    extended_count = sum(1 for i in [8, 12, 16, 20] if tip(i).y < tip(i-2).y - 0.04)
+    if extended_count != 2:
+        swipe_start_x = None
+        swipe_started_at = None
+        swipe_armed = True
+
     if now - last_gesture_time < gesture_cooldown:
         return None
 
     # HAND GESTURES
-    extended_count = sum(1 for i in [8, 12, 16, 20] if tip(i).y < tip(i-2).y - 0.04)
 
     # Closed fist with thumb down / across = pause (priority must win above search toggle)
     if extended_count == 0 and index_curled and middle_curled and ring_curled and pinky_curled and not thumb_up:
@@ -423,15 +432,25 @@ def recognize_gesture(landmarks):
         current_gesture = "volume_down"
         return "volume_down"
 
-    if extended_count == 2 and tip(12).x > wrist.x + 0.07:
-        last_gesture_time = now
-        current_gesture = "next"
-        return "next"
-
-    if extended_count == 2 and tip(12).x < wrist.x - 0.07:
-        last_gesture_time = now
-        current_gesture = "previous"
-        return "previous"
+    if extended_count == 2:
+        if swipe_armed:
+            if swipe_start_x is None:
+                swipe_start_x = wrist.x
+                swipe_started_at = now
+            else:
+                elapsed = now - swipe_started_at
+                displacement = wrist.x - swipe_start_x
+                if elapsed > 0.75:
+                    swipe_start_x = wrist.x
+                    swipe_started_at = now
+                elif elapsed >= 0.08 and abs(displacement) >= 0.16:
+                    gesture = "next" if displacement > 0 else "previous"
+                    last_gesture_time = now
+                    current_gesture = gesture
+                    swipe_armed = False
+                    return gesture
+        current_gesture = None
+        return None
 
     # Open hand (all 4 fingers extended and thumb separated from index) = play
     thumb_to_index = np.hypot(tip(4).x - tip(5).x, tip(4).y - tip(5).y)
